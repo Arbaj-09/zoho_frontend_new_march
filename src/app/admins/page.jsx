@@ -7,24 +7,13 @@ import { useState } from "react";
 const employees = [
     {
         id: 1,
-        name: "John Doe",
-        userId: "JD001",
-        employeeId: "EMP001",
-        phone: "+1 234 567 890",
-        joiningDate: "2023-01-15",
-        reportingManager: "Jane Smith",
-        team: "Engineering",
-        designation: "Senior Developer",
-        status: "Active",
-        leavePolicy: "Standard",
-        holidayPlan: "US Holidays",
-        baseSite: "New York",
-        sitePool: "US East",
-        city: "New York",
-        attendanceRestriction: "None",
-        inOutNotification: "Enabled",
-        workRestriction: "None",
-        defaultTransport: "Company Cab"
+        adminName: "Bhagyashri Dome",
+        adminId: "JD001",
+        role: "Company Admin",
+        employeeVisibility: "All",
+        reportsTo: "Bapusaheb Satpute",
+        directReportees: "0",
+        totalReportees: "0",
     },
 ];
 
@@ -52,7 +41,7 @@ export default function Admins() {
             <div className="flex flex-col space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <div className="text-lg font-semibold text-slate-900">Employee</div>
+                        <div className="text-lg font-semibold text-slate-900">Admins</div>
                     </div>
                     <div className="flex items-center space-x-3">
                         <div className="relative flex-1 max-w-md">
@@ -107,24 +96,13 @@ export default function Admins() {
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
                                         <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                                     </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Employee</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">User ID</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Employee ID</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Phone</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Joining Date</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Reporting Manager</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Team</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Designation</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Leave Policy</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Holiday Plan</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Base Site</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Site Pool</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">City</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Attendance Restriction</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">In/Out Notification</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Work Restriction</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Default Transport</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Active</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Admin Name</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Admin ID</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Role</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Employee Visibility</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Reports To</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Direct Reportees</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Total Reportees</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Action</th>
                                 </tr>
                             </thead>
@@ -141,7 +119,7 @@ export default function Admins() {
                                             <div className="flex items-center">
                                                 <div className="h-10 w-10 flex-shrink-0">
                                                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-700">
-                                                        {employee.name.split(' ').map(n => n[0]).join('')}
+                                                        {employee.adminName.split(' ').map(n => n[0]).join('')}
                                                     </div>
                                                 </div>
                                                 <div className="ml-4">
@@ -150,66 +128,30 @@ export default function Admins() {
                                             </div>
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.userId}
+                                            {employee.adminId}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.employeeId}
+                                            {employee.role}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.phone}
+                                            {employee.employeeVisibility}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {new Date(employee.joiningDate).toLocaleDateString()}
+                                            {new Date(employee.reportsTo).toLocaleDateString()}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.reportingManager}
+                                            {employee.directReportees}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4">
                                             <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
-                                                {employee.team}
+                                                {employee.totalReportees}
                                             </span>
                                         </td>
-                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.designation}
-                                        </td>
-                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.leavePolicy}
-                                        </td>
-                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.holidayPlan}
-                                        </td>
-                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.baseSite}
-                                        </td>
-                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.sitePool}
-                                        </td>
-                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.city}
-                                        </td>
-                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.attendanceRestriction}
-                                        </td>
-                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.inOutNotification}
-                                        </td>
-                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.workRestriction}
-                                        </td>
-                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.defaultTransport}
-                                        </td>
+
+
                                         <>
 
-                                            <td className="whitespace-nowrap px-6 py-4">
-                                                <label className="relative inline-flex items-center cursor-pointer">
-                                                    <input type="checkbox" value="" className="sr-only peer" defaultChecked={employee.status === "Active"} />
-                                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                                                    <span className="ml-3 text-sm font-medium text-slate-500">
-                                                        {employee.status}
-                                                    </span>
-                                                </label>
-                                            </td>
+
                                             <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
                                                 <div className="flex items-center space-x-3">
                                                     <button
@@ -274,8 +216,8 @@ export default function Admins() {
                 </div>
             </div>
             {openAddForm && (
-  <AddEmployeeForm onClose={() => setOpenAddForm(false)} />
-)}
+                <AddEmployeeForm onClose={() => setOpenAddForm(false)} />
+            )}
 
         </DashboardLayout>
     );

@@ -42,9 +42,9 @@ export default function OrganizationPage() {
                 tabs: [
                           { key: "employees", label: "Employees", href: "/organization" },
                     { key: "admins", label: "Admins", href: "/admins" },
-                    { key: "roles", label: "Roles" },
-                    { key: "designation", label: "Designation" },
-                    { key: "teams", label: "Teams" },
+                    { key: "roles", label: "Roles", href: "/roles" },
+                    { key: "designation", label: "Designation" , href: "/designation"},
+                    { key: "teams", label: "Teams", href: "/teams" },
                 ],
                 activeTabKey: "employees"
             }}
