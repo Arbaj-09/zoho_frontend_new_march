@@ -80,15 +80,15 @@ export async function getDashboardOverview() {
   };
 
   const headerTabs = {
-    activeTabKey: "overview",
-    items: [
-      { key: "overview", label: "Overview" },
-      { key: "live-location", label: "Live Location" },
-      { key: "timeline", label: "Timeline" },
-      { key: "card-view", label: "Card View" },
-      { key: "compliance", label: "Compliance Status" },
-      { key: "site-attendance", label: "Site Attendance" },
-    ],
+    // activeTabKey: "overview",
+    // items: [
+    //   { key: "overview", label: "Overview" },
+    //   { key: "live-location", label: "Live Location" },
+    //   { key: "timeline", label: "Timeline" },
+    //   { key: "card-view", label: "Card View" },
+    //   { key: "compliance", label: "Compliance Status" },
+    //   { key: "site-attendance", label: "Site Attendance" },
+    // ],
   };
 
   const user = {

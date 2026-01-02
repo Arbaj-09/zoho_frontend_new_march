@@ -324,7 +324,7 @@ export default function Sidebar({ items = [], activeKey = "dashboard", brand = "
   const menuItems = items.length > 0 ? items : defaultItems;
 
   return (
-    <aside className="hidden lg:flex lg:w-72 lg:flex-col lg:gap-4 lg:border-r lg:border-slate-200 lg:bg-white lg:px-4 lg:py-5">
+    <aside className="hidden lg:flex lg:w-72 lg:flex-col lg:gap-4 lg:border-r lg:border-slate-200 lg:bg-white lg:px-4 lg:py-5 lg:fixed lg:h-screen lg:left-0 lg:top-0 lg:z-10">
       {/* Logo and brand */}
       <div className="flex items-center gap-3 px-2">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-sm font-bold text-white shadow-sm">
@@ -337,7 +337,7 @@ export default function Sidebar({ items = [], activeKey = "dashboard", brand = "
       </div>
 
       {/* Navigation */}
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
+      <nav className="flex flex-1 flex-col gap-1">
         {menuItems.map((item) => {
           if (item.type === "divider") {
             return <div key={item.key} className="my-2 border-t border-slate-200" />;

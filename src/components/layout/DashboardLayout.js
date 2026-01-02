@@ -85,7 +85,7 @@ export default function DashboardLayout({ header, children }) {
         />
 
 
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-w-0 flex-1 flex-col lg:ml-72">
           {/* TOPBAR */}
           <Topbar
             project={header?.project}
@@ -99,7 +99,7 @@ export default function DashboardLayout({ header, children }) {
               }
             }}
           />
-          <main className="mx-auto w-full max-w-[1600px] px-6 py-6">
+          <main className="mx-auto w-full max-w-[1600px] px-6 py-6 overflow-y-auto">
             {children}
           </main>
         </div>

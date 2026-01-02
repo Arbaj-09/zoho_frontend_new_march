@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -19,6 +19,7 @@ export default function CaseDetailModalPage() {
   const [uploading, setUploading] = useState(false);
   const [file, setFile] = useState(null);
   const [docType, setDocType] = useState("");
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (!caseId) return;
@@ -92,6 +93,10 @@ export default function CaseDetailModalPage() {
       setDocs((prev) => [...prev, uploaded]);
       setFile(null);
       setDocType("");
+      // Reset the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     } catch (err) {
       console.error("Failed to upload document", err);
     } finally {
@@ -126,8 +131,8 @@ export default function CaseDetailModalPage() {
     >
       <div className="fixed inset-0 z-40 bg-black/40" />
 
-      <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8">
-        <div className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-xl">
+      <div className="fixed inset-0 z-50 flex items-start justify-center px-4 py-12 overflow-y-auto">
+        <div className="w-full max-w-6xl rounded-2xl bg-white p-8 shadow-xl">
           <div className="mb-4 flex items-start justify-between">
             <div>
               <p className="text-xs text-slate-500">
@@ -150,8 +155,20 @@ export default function CaseDetailModalPage() {
               <h1 className="mt-1 text-xl font-semibold text-slate-900">{caseTitle}</h1>
               {caseData && (
                 <p className="mt-1 text-xs text-slate-500">
-                  Case No: {caseData.caseNumber || "-"} | Status: {caseData.status || "-"} | Priority:{" "}
-                  {caseData.priority || "-"}
+                  Case No: {caseData.caseNumber || "-"} | Status:{" "}
+                  <span className={`font-medium ${
+                    caseData.status === "OPEN" ? "text-green-600" : "text-slate-600"
+                  }`}>
+                    {caseData.status || "-"}
+                  </span>{" "}
+                  | Priority:{" "}
+                  <span className={`font-medium ${
+                    caseData.priority === "MEDIUM" ? "text-orange-600" : 
+                    caseData.priority === "HIGH" ? "text-red-600" : 
+                    caseData.priority === "LOW" ? "text-blue-600" : "text-slate-600"
+                  }`}>
+                    {caseData.priority || "-"}
+                  </span>
                 </p>
               )}
             </div>
@@ -164,25 +181,24 @@ export default function CaseDetailModalPage() {
             </button>
           </div>
 
-          <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-            <h2 className="text-base font-semibold text-slate-900">Documents</h2>
+          <div className="border-b border-slate-200 pb-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-slate-900">Documents</h2>
+            </div>
             <form onSubmit={handleUpload} className="flex items-center gap-3">
-              <select
+              <input
+                type="text"
                 className="rounded-md border border-slate-300 px-3 py-1.5 text-xs focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 value={docType}
                 onChange={(e) => setDocType(e.target.value)}
-              >
-                <option value="">Select Type</option>
-                <option value="AGREEMENT">Agreement</option>
-                <option value="ID_PROOF">ID Proof</option>
-                <option value="INVOICE">Invoice</option>
-                <option value="OTHER">Other</option>
-              </select>
+                placeholder="Enter document name"
+              />
               <input
                 type="file"
                 accept="application/pdf"
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
                 className="text-xs"
+                ref={fileInputRef}
               />
               <button
                 type="submit"
@@ -202,7 +218,7 @@ export default function CaseDetailModalPage() {
                 No documents uploaded. Click "Upload Doc" to add a PDF.
               </p>
             ) : (
-              <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-4">
                 {docs.map((doc) => (
                   <div
                     key={doc.id}

@@ -17,14 +17,14 @@ export const mockDashboardData = {
   },
   headerTabs: {
     activeTabKey: "overview",
-    items: [
-      { key: "overview", label: "Overview" },
-      { key: "live-location", label: "Live Location" },
-      { key: "timeline", label: "Timeline" },
-      { key: "card-view", label: "Card View" },
-      { key: "compliance", label: "Compliance Status" },
-      { key: "site-attendance", label: "Site Attendance" },
-    ],
+    // items: [
+    //   { key: "overview", label: "Overview" },
+    //   { key: "live-location", label: "Live Location" },
+    //   { key: "timeline", label: "Timeline" },
+    //   { key: "card-view", label: "Card View" },
+    //   { key: "compliance", label: "Compliance Status" },
+    //   { key: "site-attendance", label: "Site Attendance" },
+    // ],
   },
   user: {
     name: "Yashraj",
