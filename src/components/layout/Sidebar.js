@@ -291,9 +291,9 @@ export default function Sidebar({ items = [], activeKey = "dashboard", brand = "
       icon: "expenses"
     },
     {
-      key: "client",
-      label: "Client & Sites",
-      href: "/client",
+      key: "sites",
+      label: "Sites",
+      href: "/sites",
       icon: "client"
     },
     {

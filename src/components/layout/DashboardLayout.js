@@ -9,7 +9,7 @@ import Topbar from "@/components/layout/Topbar";
 // Navigation items
 const navigationItems = [
   { key: "dashboard", label: "Dashboard", href: "/", icon: "dashboard" },
-    { key: "customers", label: "Customers", href: "/customers", icon: "org" },
+  { key: "customers", label: "Customers", href: "/customers", icon: "org" },
   { key: "attendance", label: "Attendance", href: "/attendance", icon: "attendance" },
   { key: "leaves", label: "Leaves", href: "/leaves", icon: "leaves" },
   { key: "organization", label: "Organization", href: "/organization", icon: "org" },
@@ -17,7 +17,7 @@ const navigationItems = [
   { key: "form", label: "Form", href: "/form", icon: "form" },
   { key: "order", label: "Order", href: "/order", icon: "order" },
   { key: "expenses", label: "Expenses", href: "/expenses", icon: "expenses" },
-  { key: "client", label: "Client", href: "/client", icon: "client" },
+  { key: "sites", label: "Sites", href: "/sites", icon: "client" },
   { key: "reports", label: "Reports", href: "/reports", icon: "reports" },
   { key: "support", label: "Support", href: "/support", icon: "support" },
   { key: "setting", label: "Setting", href: "/settings", icon: "settings" },
