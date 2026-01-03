@@ -67,9 +67,12 @@ export default function DashboardLayout({ header, children }) {
   const getActiveTabKey = () => {
     if (!header?.tabs) return null;
 
-    const activeTab = header.tabs.find(tab =>
-      pathname === tab.href || pathname.startsWith(tab.href)
-    );
+    const activeTab = header.tabs.find(tab => {
+      if (tab.href === '/') {
+        return pathname === '/';
+      }
+      return pathname.startsWith(tab.href);
+    });
 
     return activeTab?.key || header?.activeTabKey;
   };

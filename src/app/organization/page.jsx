@@ -1,61 +1,180 @@
 "use client";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import AddEmployeeForm from "../addOrganization/page";
+import AddEmployeePage from "../employees/add/page";
 import { useEffect, useState } from "react";
 import { backendApi } from "@/services/api";
+import { useRouter } from "next/navigation";
+
+// Modal wrapper component
+function AddEmployeeModal({ onClose, editingEmployee }) {
+    const router = useRouter();
+    
+    const handleSuccess = () => {
+        onClose();
+        // The onClose will trigger handleCloseForm which calls loadEmployees()
+        // No need for page reload, just refresh the data
+    };
+    
+    return (
+        <div>
+            <AddEmployeePage 
+                onSuccess={handleSuccess}
+                isModal={true}
+                editingEmployee={editingEmployee}
+            />
+        </div>
+    );
+}
 
 export default function OrganizationPage() {
     const [openAddForm, setOpenAddForm] = useState(false);
     const [employees, setEmployees] = useState([]);
+    const [editingEmployee, setEditingEmployee] = useState(null);
+    const [forceUpdate, setForceUpdate] = useState(0);
+    const [tableKey, setTableKey] = useState(0);
+
+    // Handle employee deletion
+    const handleDeleteEmployee = async (employeeId) => {
+        if (!confirm('Are you sure you want to delete this employee?')) {
+            return;
+        }
+
+        try {
+            await backendApi.delete(`/employees/${employeeId}`);
+            // Refresh the employee list
+            const updatedEmployees = employees.filter(emp => emp.id !== employeeId);
+            setEmployees(updatedEmployees);
+            alert('Employee deleted successfully');
+        } catch (error) {
+            console.error('Error deleting employee:', error);
+            alert('Failed to delete employee');
+        }
+    };
+
+    // Handle employee edit
+    const handleEditEmployee = (employee) => {
+        setEditingEmployee(employee.originalData || employee);
+        setOpenAddForm(true);
+    };
+
+    // Handle form close
+    const handleCloseForm = () => {
+        console.log('handleCloseForm called - refreshing employee list');
+        setOpenAddForm(false);
+        setEditingEmployee(null);
+        // Refresh the employee list with a longer delay to ensure backend update is processed
+        setTimeout(() => {
+            console.log('Refreshing employee list after update');
+            loadEmployees();
+        }, 1000); // Increased from 500ms to 1000ms
+    };
+
+    // Load employees function
+    const loadEmployees = async () => {
+        try {
+            console.log('Loading employees from API...');
+            const data = await backendApi.get("/employees");
+            console.log('Received employee data:', data?.length, 'employees');
+            console.log('Raw API data sample:', data?.[0]); // Debug first employee
+            const mapped = (data || []).map((e) => {
+                const name = e.firstName
+                    ? `${e.firstName} ${e.lastName || ""}`.trim()
+                    : e.employeeId || e.userId || "-";
+
+                return {
+                    id: e.id,
+                    name,
+                    userId: e.userId,
+                    employeeId: e.employeeId,
+                    phone: e.phone,
+                    joiningDate: e.hiredAt,
+                    reportingManager: e.reportingManagerName || "-",
+                    team: e.teamName || "-",
+                    designation: e.designationName || "-",
+                    role: e.roleName || "-",
+                    status: e.status || "-",
+                    leavePolicy: e.leavePolicy || "-",
+                    holidayPlan: e.holidayPlan || "-",
+                    baseSite: e.baseSite || "-",
+                    sitePool: e.sitePool || "-",
+                    city: e.city || "-",
+                    attendanceRestriction: e.attendanceRestriction || "-",
+                    inOutNotification: e.inOutNotification || "-",
+                    workRestriction: e.workRestriction || "-",
+                    defaultTransport: e.defaultTransport || "-",
+                    profileImageUrl: e.profileImageUrl || null,
+                    // Keep original data for editing
+                    originalData: e
+                };
+            });
+
+            console.log('Setting employees state with', mapped.length, 'employees');
+            console.log('Mapped data sample:', mapped[0]); // Debug first mapped employee
+            console.log('Employee 1 mapped data:', mapped.find(e => e.id === 1)); // Debug employee 1 specifically
+            
+            // Force React to detect state change by creating a new array reference
+            const newEmployees = [...mapped];
+            console.log('About to set employees state with new data:', newEmployees[0]);
+            setEmployees(newEmployees);
+            
+            // Force re-render by updating a dummy state
+            setForceUpdate(prev => prev + 1);
+            
+            // Additional force re-render using setTimeout
+            setTimeout(() => {
+                console.log('Force re-render attempt 1');
+                setEmployees([...newEmployees]);
+                setForceUpdate(prev => prev + 1);
+            }, 100);
+            
+            // Force complete re-render with key change
+            setTimeout(() => {
+                console.log('Force re-render attempt 2 with key change');
+                const employeesWithKeys = newEmployees.map(emp => ({...emp, key: `${emp.id}-${Date.now()}`}));
+                setEmployees(employeesWithKeys);
+                setForceUpdate(prev => prev + 1);
+            }, 200);
+            
+            // Final force re-render with DOM manipulation
+            setTimeout(() => {
+                console.log('Force re-render attempt 3');
+                setEmployees([...newEmployees]);
+                setForceUpdate(prev => prev + 1);
+                setTableKey(prev => prev + 1); // Force complete table re-render
+                
+                // Force DOM update by manipulating the table directly
+                setTimeout(() => {
+                    const table = document.querySelector('table');
+                    if (table) {
+                        table.style.display = 'none';
+                        setTimeout(() => {
+                            table.style.display = '';
+                        }, 10);
+                    }
+                }, 50);
+            }, 300);
+        } catch (err) {
+            console.error("Failed to load employees", err);
+        }
+    };
 
     useEffect(() => {
         let isMounted = true;
-
-        async function loadEmployees() {
-            try {
-                const data = await backendApi.get("/employees");
-                if (!isMounted) return;
-
-                const mapped = (data || []).map((e) => {
-                    const name = e.firstName
-                        ? `${e.firstName} ${e.lastName || ""}`.trim()
-                        : e.employeeId || e.userId || "-";
-
-                    return {
-                        id: e.id,
-                        name,
-                        userId: e.userId,
-                        employeeId: e.employeeId,
-                        phone: e.phone,
-                        joiningDate: e.hiredAt,
-                        reportingManager: e.reportingManagerName || "-",
-                        team: e.teamName || "-",
-                        designation: e.designationName || "-",
-                        status: e.status || "-",
-                        leavePolicy: e.leavePolicy || "-",
-                        holidayPlan: e.holidayPlan || "-",
-                        baseSite: e.baseSite || "-",
-                        sitePool: e.sitePool || "-",
-                        city: e.city || "-",
-                        attendanceRestriction: e.attendanceRestriction || "-",
-                        inOutNotification: e.inOutNotification || "-",
-                        workRestriction: e.workRestriction || "-",
-                        defaultTransport: e.defaultTransport || "-",
-                    };
-                });
-
-                setEmployees(mapped);
-            } catch (err) {
-                console.error("Failed to load employees", err);
-            }
-        }
-
         loadEmployees();
 
         return () => {
             isMounted = false;
         };
     }, []);
+
+    // Monitor employees state changes and force re-render
+    useEffect(() => {
+        console.log('Employees state changed:', employees.length, 'employees');
+        console.log('Force update count:', forceUpdate);
+        if (employees.length > 0) {
+            console.log('Current employee 1 in state:', employees.find(e => e.id === 1));
+        }
+    }, [employees, forceUpdate]);
 
     return (
         <DashboardLayout
@@ -126,9 +245,9 @@ export default function OrganizationPage() {
 
                 </div>
 
-                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" key={tableKey}>
                     <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-slate-200">
+                        <table key={forceUpdate} className="min-w-full divide-y divide-slate-200">
                             <thead className="bg-slate-50">
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
@@ -141,6 +260,7 @@ export default function OrganizationPage() {
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Joining Date</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Reporting Manager</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Team</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Role</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Designation</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Leave Policy</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Holiday Plan</th>
@@ -157,7 +277,7 @@ export default function OrganizationPage() {
                             </thead>
                             <tbody className="divide-y divide-slate-200 bg-white">
                                 {employees.map((employee) => (
-                                    <tr key={employee.id} className="hover:bg-slate-50">
+                                    <tr key={employee.key || employee.id} className="hover:bg-slate-50">
                                         <td className="whitespace-nowrap px-6 py-4">
                                             <input
                                                 type="checkbox"
@@ -167,9 +287,17 @@ export default function OrganizationPage() {
                                         <td className="whitespace-nowrap px-6 py-4">
                                             <div className="flex items-center">
                                                 <div className="h-10 w-10 flex-shrink-0">
-                                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-700">
-                                                        {employee.name.split(' ').map(n => n[0]).join('')}
-                                                    </div>
+                                                    {employee.profileImageUrl ? (
+                                                        <img
+                                                            src={`http://localhost:8080${employee.profileImageUrl}`}
+                                                            alt={employee.name}
+                                                            className="w-10 h-10 rounded-full object-cover border-2 border-gray-300"
+                                                        />
+                                                    ) : (
+                                                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-700">
+                                                            {employee.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 <div className="ml-4">
                                                     <div className="text-sm font-medium text-slate-900">{employee.name}</div>
@@ -195,6 +323,9 @@ export default function OrganizationPage() {
                                             <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
                                                 {employee.team}
                                             </span>
+                                        </td>
+                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
+                                            {employee.role}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
                                             {employee.designation}
@@ -226,43 +357,40 @@ export default function OrganizationPage() {
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
                                             {employee.defaultTransport}
                                         </td>
-                                        <>
-
-                                            <td className="whitespace-nowrap px-6 py-4">
-                                                <label className="relative inline-flex items-center cursor-pointer">
-                                                    <input type="checkbox" value="" className="sr-only peer" defaultChecked={employee.status === "Active"} />
-                                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                                                    <span className="ml-3 text-sm font-medium text-slate-500">
-                                                        {employee.status}
-                                                    </span>
-                                                </label>
-                                            </td>
-                                            <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                                <div className="flex items-center space-x-3">
-                                                    <button
-                                                        className="text-indigo-600 hover:text-indigo-900 p-1 rounded-full hover:bg-indigo-50"
-                                                        title="Edit"
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.793.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                        </svg>
-                                                    </button>
-                                                    <button
-                                                        className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50"
-                                                        title="Delete"
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                                        </svg>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </>
-
+                                        <td className="whitespace-nowrap px-6 py-4">
+                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                <input type="checkbox" value="" className="sr-only peer" defaultChecked={employee.status === "Active"} />
+                                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                                                <span className="ml-3 text-sm font-medium text-slate-500">
+                                                    {employee.status}
+                                                </span>
+                                            </label>
+                                        </td>
+                                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
+                                            <div className="flex items-center space-x-3">
+                                                <button
+                                                    onClick={() => handleEditEmployee(employee)}
+                                                    className="text-indigo-600 hover:text-indigo-900 p-1 rounded-full hover:bg-indigo-50"
+                                                    title="Edit"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.793.793-.793zM11.379 5.793L3 14.172V17h2.828L8.38-8.379-2.83-2.828z" />
+                                                    </svg>
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteEmployee(employee.id)}
+                                                    className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50"
+                                                    title="Delete"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
-
                         </table>
                     </div>
                     <div className="flex items-center justify-between border-t border-slate-200 bg-white px-6 py-4">
@@ -291,8 +419,7 @@ export default function OrganizationPage() {
                                 1
                             </button>
                             <button
-                                disabled
-                                className="relative inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+                                className="relative inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-50"
                             >
                                 Next
                             </button>
@@ -301,8 +428,23 @@ export default function OrganizationPage() {
                 </div>
             </div>
             {openAddForm && (
-  <AddEmployeeForm onClose={() => setOpenAddForm(false)} />
-)}
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <div className="bg-white rounded-lg max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
+                            <h2 className="text-xl font-semibold">{editingEmployee ? 'Edit Employee' : 'Add Employee'}</h2>
+                            <button 
+                                onClick={() => setOpenAddForm(false)}
+                                className="text-gray-500 hover:text-gray-700"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div className="p-6">
+                            <AddEmployeeModal onClose={handleCloseForm} editingEmployee={editingEmployee} />
+                        </div>
+                    </div>
+                </div>
+            )}
 
         </DashboardLayout>
     );

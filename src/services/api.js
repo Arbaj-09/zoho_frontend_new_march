@@ -1,10 +1,15 @@
 export function createApiClient({ baseUrl = "" } = {}) {
   async function request(path, { method = "GET", body } = {}) {
+    // Get auth token from localStorage
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    
     const res = await fetch(baseUrl + path, {
       method,
       headers: {
         Accept: "application/json",
         "Content-Type": body ? "application/json" : undefined,
+        // Add authorization header if token exists
+        ...(token && { Authorization: `Bearer ${token}` }),
       },
       body: body ? JSON.stringify(body) : undefined,
     });

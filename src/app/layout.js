@@ -1,16 +1,14 @@
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "react-toastify/dist/ReactToastify.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+// Use local system fonts instead of Google Fonts
+const geistSans = {
+  className: "font-sans"
+};
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const geistMono = {
+  className: "font-mono"
+};
 
 export const metadata = {
   title: "Attendance & Workforce Dashboard",
@@ -21,7 +19,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-50 text-slate-900`}
+        className={`${geistSans.className} ${geistMono.className} antialiased bg-slate-50 text-slate-900`}
       >
         {children}
       </body>

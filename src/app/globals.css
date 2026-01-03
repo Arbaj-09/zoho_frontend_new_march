@@ -21,3 +21,64 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
 }
+
+/* Tree hierarchy styles */
+.tree-line {
+  position: relative;
+}
+
+.tree-line::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: #d1d5db;
+}
+
+.tree-line::after {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 24px;
+  width: 12px;
+  height: 1px;
+  background-color: #d1d5db;
+}
+
+.tree-node {
+  position: relative;
+}
+
+.tree-node-children {
+  position: relative;
+}
+
+.tree-node-children::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: #d1d5db;
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}

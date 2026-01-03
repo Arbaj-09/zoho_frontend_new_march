@@ -16,7 +16,20 @@ export default function Admins() {
                 const data = await backendApi.get("/employees");
                 if (!isMounted) return;
 
-                const mapped = (data || []).map((e) => {
+                // Filter only admin users (those with admin-like userId or employeeId)
+                const adminUsers = (data || []).filter((e) => {
+                    const userId = (e.userId || '').toLowerCase();
+                    const employeeId = (e.employeeId || '').toLowerCase();
+                    const email = (e.email || '').toLowerCase();
+                    
+                    return userId.includes('admin') || 
+                           employeeId.includes('adm') || 
+                           email.includes('admin') ||
+                           e.roleName === 'ADMIN' ||
+                           e.userId === 'admin';
+                });
+
+                const mapped = adminUsers.map((e) => {
                     const adminName = e.firstName
                         ? `${e.firstName} ${e.lastName || ""}`.trim()
                         : e.employeeId || e.userId || "-";
@@ -26,7 +39,10 @@ export default function Admins() {
                         adminName,
                         name: adminName,
                         adminId: e.employeeId || e.userId || "-",
-                        role: e.roleName || "Employee",
+                        role: e.roleName || "Administrator",
+                        email: e.email || "-",
+                        phone: e.phone || "-",
+                        status: e.status || "Active",
                         employeeVisibility: "All",
                         reportsTo: e.reportingManagerName || "-",
                         directReportees: 0,
@@ -57,13 +73,13 @@ export default function Admins() {
                 },
                 notifications: [],
                 tabs: [
-                    { key: "employees", label: "Employees" },
-                    { key: "admins", label: "Admins" },
-                    { key: "roles", label: "Roles" },
-                    { key: "designation", label: "Designation" },
-                    { key: "teams", label: "Teams" },
+                    { key: "employees", label: "Employees", href: "/organization" },
+                    { key: "admins", label: "Admins", href: "/admins" },
+                    { key: "roles", label: "Roles", href: "/roles" },
+                    { key: "designation", label: "Designation", href: "/designation" },
+                    { key: "teams", label: "Teams", href: "/teams" },
                 ],
-                activeTabKey: "employees"
+                activeTabKey: "admins"
             }}
         >
             <div className="flex flex-col space-y-4">

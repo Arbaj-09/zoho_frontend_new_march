@@ -49,6 +49,10 @@ export default function DesignationPage() {
     }
   };
 
+  const handleCreate = () => {
+    router.push('/designation/add');
+  };
+
   return (
     <DashboardLayout
       header={{
@@ -59,44 +63,16 @@ export default function DesignationPage() {
         },
         notifications: [],
         tabs: [
-          { key: "employees", label: "Employees" },
-          { key: "admins", label: "Admins" },
-          { key: "roles", label: "Roles" },
-          { key: "designation", label: "Designation" },
-          { key: "teams", label: "Teams" },
+          { key: "employees", label: "Employees", href: "/organization" },
+          { key: "admins", label: "Admins", href: "/admins" },
+          { key: "roles", label: "Roles", href: "/roles" },
+          { key: "designation", label: "Designation", href: "/designation" },
+          { key: "teams", label: "Teams", href: "/teams" },
         ],
         activeTabKey: "designation"
       }}
     >
       <div className="p-6 bg-[#f8fafc] min-h-screen">
-        {/* Top Tabs */}
-        <div className="flex gap-8 border-b mb-6 text-sm font-medium">
-          {['Employees', 'Admins', 'Roles', 'Designation', 'Teams'].map(
-            (tab) => (
-              <button
-                key={tab}
-                onClick={() => {
-                  if (tab === 'Designation') return;
-                  const routes = {
-                    'Employees': '/employees',
-                    'Admins': '/admins',
-                    'Roles': '/roles',
-                    'Teams': '/teams'
-                  };
-                  router.push(routes[tab]);
-                }}
-                className={`pb-3 ${
-                  tab === 'Designation'
-                    ? 'border-b-2 border-blue-600 text-blue-600'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab}
-              </button>
-            )
-          )}
-        </div>
-
         {/* Card */}
         <div className="bg-white rounded-xl shadow-sm border">
           {/* Header */}
@@ -116,11 +92,12 @@ export default function DesignationPage() {
               </div>
 
               {/* Add Button */}
-              <button
-                onClick={() => router.push('/designation/add')}
+              <button 
+                onClick={handleCreate}
                 className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700"
               >
-                <Briefcase size={16} /> Add Designation
+                <Plus className="w-4 h-4" />
+                Add Designation
               </button>
             </div>
           </div>

@@ -53,45 +53,16 @@ export default function RolesPage() {
                     },
                     notifications: [],
                     tabs: [
-                        { key: "employees", label: "Employees" },
-                        { key: "admins", label: "Admins" },
-                        { key: "roles", label: "Roles" },
-                        { key: "designation", label: "Designation" },
-                        { key: "teams", label: "Teams" },
+                        { key: "employees", label: "Employees", href: "/organization" },
+                        { key: "admins", label: "Admins", href: "/admins" },
+                        { key: "roles", label: "Roles", href: "/roles" },
+                        { key: "designation", label: "Designation", href: "/designation" },
+                        { key: "teams", label: "Teams", href: "/teams" },
                     ],
-                    activeTabKey: "employees"
+                    activeTabKey: "roles"
                 }}
             >
     <div className="p-6 bg-[#f8fafc] min-h-screen">
-      {/* Top Tabs */}
-      <div className="flex gap-8 border-b mb-6 text-sm font-medium">
-        {['Employees', 'Admins', 'Roles', 'Designation', 'Teams'].map(
-          (tab) => (
-            <button
-              key={tab}
-              onClick={() => {
-                if (tab === 'Roles') return;
-                const routes = {
-                  'Employees': '/employees',
-                  'Admins': '/admins',
-                  'Designation': '/designation',
-                  'Teams': '/teams'
-                };
-                router.push(routes[tab]);
-              }}
-              className={`pb-3 ${
-                tab === 'Roles'
-                  ? 'border-b-2 border-blue-600 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {tab}
-            </button>
-          )
-        )}
-      </div>
-
-      {/* Card */}
       <div className="bg-white rounded-xl shadow-sm border">
         {/* Header */}
         <div className="flex justify-between items-center p-4">
