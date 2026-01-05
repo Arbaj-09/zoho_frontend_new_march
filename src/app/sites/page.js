@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { backendApi } from "@/services/api";
@@ -38,6 +38,8 @@ export default function SitesPage() {
   const [activeInnerTab, setActiveInnerTab] = useState("sites");
   const [selectedSiteOnMap, setSelectedSiteOnMap] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [viewSite, setViewSite] = useState(null);
+  const importInputRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -206,6 +208,53 @@ export default function SitesPage() {
     } catch (e) {
       console.error("Failed to bulk delete sites", e);
       alert("Failed to delete some sites");
+    }
+  };
+
+  const handleImportClick = () => {
+    if (importInputRef.current) {
+      importInputRef.current.click();
+    }
+  };
+
+  const handleImportChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+
+      // Use fetch directly so we can send FormData without JSON headers
+      const res = await fetch("http://localhost:8080/api/sites/import", {
+        method: "POST",
+        body: formData,
+        headers: {
+          // Do NOT set Content-Type here; the browser will set multipart/form-data with boundary
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        console.error("Sites import failed", res.status, text);
+        throw new Error(`Import failed with status ${res.status}`);
+      }
+
+      // Refresh list so imported data appears immediately
+      const data = await backendApi.get("/sites");
+      setSites(data || []);
+      setSelectedIds([]);
+
+      alert("Sites imported successfully.");
+    } catch (e) {
+      console.error("Failed to import sites", e);
+      alert("Failed to import some or all rows from the Excel file.");
+    } finally {
+      // Clear file input so the same file can be selected again if needed
+      event.target.value = "";
     }
   };
 
@@ -424,50 +473,49 @@ export default function SitesPage() {
 
                 <button
                   type="button"
+                  title="Import from Excel"
+                  aria-label="Import from Excel"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50/80 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                  onClick={handleImportClick}
+                >
+                  <ExportIcon className="h-4 w-4 rotate-180" />
+                </button>
+
+                <button
+                  type="button"
                   title="Export to CSV"
                   aria-label="Export to CSV"
                   className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-200 hover:bg-sky-50/80 hover:text-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
-                  onClick={() => {
-                    const header = [
-                      "Site",
-                      "Site ID",
-                      "Address",
-                      "Email",
-                      "Description",
-                      "Contact Person",
-                      "Contact Number",
-                      "Latitude",
-                      "Longitude",
-                      "City",
-                      "Pincode",
-                    ];
-                    const rows = filteredSites.map((s) => [
-                      s.siteName,
-                      s.siteId,
-                      s.address,
-                      s.email,
-                      s.description,
-                      s.contactPerson,
-                      s.contactNumber,
-                      s.latitude,
-                      s.longitude,
-                      s.city,
-                      s.pincode,
-                    ]);
-                    const csv = [header, ...rows]
-                      .map((r) =>
-                        r
-                          .map((v) => `"${(v ?? "").toString().replace(/"/g, '""')}"`)
-                          .join(","),
-                      )
-                      .join("\n");
-                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = "Sites.csv";
-                    a.click();
-                    URL.revokeObjectURL(url);
+                  onClick={async () => {
+                    try {
+                      const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+
+                      const res = await fetch("http://localhost:8080/api/sites/export", {
+                        method: "GET",
+                        headers: {
+                          Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                          ...(token && { Authorization: `Bearer ${token}` }),
+                        },
+                      });
+
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        console.error("Failed to export sites", res.status, text);
+                        alert("Failed to export sites");
+                        return;
+                      }
+
+                      const blob = await res.blob();
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = "sites.xlsx";
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch (e) {
+                      console.error("Failed to export sites", e);
+                      alert("Failed to export sites");
+                    }
                   }}
                 >
                   <ExportIcon className="h-4 w-4" />
@@ -493,6 +541,15 @@ export default function SitesPage() {
               </div>
             </div>
           </div>
+
+          {/* Hidden file input for Excel import */}
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            className="hidden"
+            onChange={handleImportChange}
+          />
 
           {/* Content */}
           {activeInnerTab === "pools" ? (
@@ -643,7 +700,7 @@ export default function SitesPage() {
                             <button
                               type="button"
                               className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-600 ring-1 ring-slate-200 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400/20"
-                              onClick={() => alert(JSON.stringify(site, null, 2))}
+                              onClick={() => setViewSite(site)}
                               aria-label="View"
                             >
                               <EyeIcon className="h-4 w-4" />
@@ -796,9 +853,56 @@ export default function SitesPage() {
           </div>
         )}
 
+        {/* View Site Details Modal */}
+        {viewSite && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Site Details</h2>
+                  <p className="text-xs text-slate-500">
+                    Quick overview of this siteread only.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewSite(null)}
+                  className="rounded-full bg-slate-50 px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-sm">
+                {[ 
+                  ["Site", viewSite.siteName],
+                  ["Site ID", viewSite.siteId],
+                  ["Address", viewSite.address],
+                  ["Email", viewSite.email],
+                  ["Description", viewSite.description],
+                  ["Contact Person", viewSite.contactPerson],
+                  ["Contact Number", viewSite.contactNumber],
+                  ["Latitude", viewSite.latitude],
+                  ["Longitude", viewSite.longitude],
+                  ["City", viewSite.city],
+                  ["Pincode", viewSite.pincode],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex flex-col">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      {label}
+                    </span>
+                    <span className="mt-1 rounded-md bg-slate-50 px-3 py-2 text-slate-800">
+                      {value ?? "-"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Add Sites Modal */}
         {isAddOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
             <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-slate-900">Add Sites</h2>
@@ -857,7 +961,7 @@ export default function SitesPage() {
 
         {/* Edit Sites Modal */}
         {isEditOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
             <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-slate-900">Edit Sites</h2>
