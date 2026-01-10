@@ -72,6 +72,16 @@ export default function CustomersPage() {
 
       const created = await backendApi.post("/clients", payload);
 
+      try {
+        await backendApi.post("/deals", {
+          clientId: created.id,
+          name: created.name,
+          branchName: created.address || "",
+        });
+      } catch (err) {
+        console.error("Failed to auto-create deal for customer", err);
+      }
+
       const mapped = {
         id: created.id,
         name: created.name,

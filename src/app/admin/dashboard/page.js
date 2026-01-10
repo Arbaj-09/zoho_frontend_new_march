@@ -1,22 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Users, Building2, TrendingUp, Calendar, Activity, Settings, LogOut, Menu } from 'lucide-react';
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const userData = localStorage.getItem("user_data");
-      if (userData) {
-        setUser(JSON.parse(userData));
-      }
+  const [user] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const userData = localStorage.getItem("user_data");
+    if (!userData) return null;
+    try {
+      return JSON.parse(userData);
+    } catch (_e) {
+      return null;
     }
-  }, []);
+  });
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
@@ -85,7 +85,7 @@ export default function AdminDashboard() {
                   Welcome back, {user?.firstName || 'Admin'}! 👋
                 </h1>
                 <p className="text-gray-600 mt-2">
-                  Here's what's happening with your organization today
+                  Here&apos;s what&apos;s happening with your organization today
                 </p>
               </div>
               <div className="flex items-center gap-4">

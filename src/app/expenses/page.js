@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { backendApi } from '@/services/api';
+import { Eye, Trash2 } from 'lucide-react';
 
 export default function ExpenseOverviewPage() {
   const [activeTab, setActiveTab] = useState('overview');

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { backendApi } from "@/services/api";
+import SearchSelectModal from "@/components/common/SearchSelectModal";
 import {
   Calendar,
   Mail,
@@ -26,44 +27,25 @@ export default function CustomerDetailPage() {
 
   const [customer, setCustomer] = useState(null);
   const [cases, setCases] = useState([]);
+  const [caseName, setCaseName] = useState("");
   const [loadingCases, setLoadingCases] = useState(false);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("timeline");
   const [follow, setFollow] = useState(false);
 
-  const statuses = [
-    "Lead",
-    "13/2",
-    "13/4",
-    "DM Application",
-    "Possession Order",
-    "Physical Possession",
-    "Billing Department",
-    "Closed Won",
-    "Closed Lost",
-    "Hold Account",
-  ];
-  const [currentStage, setCurrentStage] = useState("Physical Possession");
+  const [statuses, setStatuses] = useState([]);
+  const [currentStage, setCurrentStage] = useState(null);
   const [stageStartAt, setStageStartAt] = useState(() => new Date());
 
-  const [timeline, setTimeline] = useState(() => {
-    const now = new Date();
-    return [
-      {
-        id: 1,
-        time: new Date(now.getTime() - 1000 * 60 * 60 * 24).toISOString(),
-        actor: "Simran Singh",
-        message: "Stage updated to 'Physical Possession'",
-      },
-      {
-        id: 2,
-        time: new Date(now.getTime() - 1000 * 60 * 60 * 24).toISOString(),
-        actor: "Simran Singh",
-        message: "Stage updated to 'Lead'",
-      },
-    ];
-  });
+  const [timeline, setTimeline] = useState([]);
+  const [deal, setDeal] = useState(null);
+  const [dealId, setDealId] = useState(null);
+  const [bank, setBank] = useState(null);
+  const [banks, setBanks] = useState([]);
+  const [bankSearch, setBankSearch] = useState("");
+  const [showBankPicker, setShowBankPicker] = useState(false);
+  const [bankFormError, setBankFormError] = useState("");
 
   const [notes, setNotes] = useState([]);
   const [noteText, setNoteText] = useState("");
@@ -71,25 +53,105 @@ export default function CustomerDetailPage() {
   const [noteFile, setNoteFile] = useState(null);
 
   const [activitiesTab, setActivitiesTab] = useState("tasks");
-  const [tasks, setTasks] = useState([
-    { id: 1, name: "Make a Bill", dueDate: "2023-08-08", status: "Completed", owner: "Mahesh Narsale", priority: "Normal", description: "" },
-    { id: 2, name: "Bill Give", dueDate: "2023-09-20", status: "Completed", owner: "Mahesh Narsale", priority: "Normal", description: "" },
-    { id: 3, name: "Document Collect", dueDate: "2023-12-12", status: "Completed", owner: "Mahesh Narsale", priority: "Normal", description: "" },
-  ]);
+  const [tasks, setTasks] = useState([]);
   const [events, setEvents] = useState([]);
   const [calls, setCalls] = useState([]);
 
-  const productCatalog = [
-    { id: 1, name: "Collection Charges", code: "CC", price: 10000 },
-    { id: 2, name: "Dm Order", code: "DO", price: 15000 },
-    { id: 3, name: "Legal Notice", code: "LN", price: 5000 },
-    { id: 4, name: "Filing Charges", code: "FC", price: 8000 },
-  ];
+  const [productCatalog, setProductCatalog] = useState([]);
 
-  const [products, setProducts] = useState([
-    { id: 1, name: "Collection Charges", code: "CC", price: 10000, qty: 1, discount: 0, tax: 0 },
-    { id: 2, name: "Dm Order", code: "DO", price: 15000, qty: 1, discount: 0, tax: 0 },
-  ]);
+  const [products, setProducts] = useState([]);
+
+  const showApiError = (prefix, err) => {
+    const status = err?.status || err?.response?.status;
+    const msg = err?.data?.message || err?.response?.data?.message || err?.message || "Something went wrong";
+    if (status === 400) return alert(`${prefix}: ${msg}`);
+    if (status === 401 || status === 403) return alert(`${prefix}: Permission denied`);
+    if (status >= 500) return alert(`${prefix}: Server error`);
+    return alert(`${prefix}: ${msg}`);
+  };
+
+  const showSuccess = (msg) => {
+    alert(msg);
+  };
+
+  const adaptTimeline = (items) => {
+    const list = Array.isArray(items?.content) ? items.content : Array.isArray(items) ? items : [];
+    return list
+      .map((it) => {
+        const time = it.time || it.at || it.timestamp || it.createdAt || it.date;
+        const actor = it.actor || it.by || it.user || it.createdByName || it.createdBy || "";
+        const message = it.message || it.text || it.title || it.summary || it.event || "";
+        return { id: it.id || `${it.type || "EV"}-${time || Math.random()}`, time, actor, message };
+      })
+      .filter((x) => x.time)
+      .sort((a, b) => new Date(b.time) - new Date(a.time));
+  };
+
+  const adaptStages = (items) => {
+    const list = Array.isArray(items?.content) ? items.content : Array.isArray(items) ? items : [];
+    return list.map((it) => {
+      const stage = it.newStage || it.stage || it.to;
+      const timestamp = it.changedAt || it.timestamp || it.at || it.createdAt || it.date;
+      return {
+        id: it.id || `${stage}-${timestamp}`,
+        stage,
+        amount: Number(it.amount ?? it.valueAmount ?? it.dealValue ?? grandTotal) || 0,
+        durationDays: it.durationDays ?? it.days ?? 0,
+        modifiedBy: it.modifiedByName || it.changedByName || it.modifiedBy || it.changedBy || it.createdByName || it.createdBy || "",
+        timestamp,
+      };
+    });
+  };
+
+  const adaptActivities = (items) => {
+    const list = Array.isArray(items?.content) ? items.content : Array.isArray(items) ? items : [];
+    return list.map((a) => ({
+      id: a.id,
+      name: a.name || a.title,
+      title: a.title || a.name,
+      dueDate: a.dueDate || a.dueAt || a.date,
+      from: a.startDate || a.startDateTime || a.from,
+      to: a.endDate || a.endDateTime || a.to,
+      status: a.status,
+      owner: a.ownerName || a.owner || a.createdByName || a.createdBy,
+      modifiedBy: a.modifiedByName || a.modifiedBy,
+      description: a.description,
+      location: a.location,
+      callType: a.callType,
+      callStatus: a.callStatus || a.status,
+      startTime: a.startDate || a.startDateTime || a.startTime,
+      modifiedTime: a.modifiedAt || a.updatedAt || a.modifiedTime,
+      priority: a.priority,
+      duration: a.duration,
+      callPurpose: a.callPurpose,
+      callAgenda: a.callAgenda,
+      fields: a.fields || [],
+    }));
+  };
+
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editingEventId, setEditingEventId] = useState(null);
+  const [editingCallId, setEditingCallId] = useState(null);
+
+  const adaptDealProducts = (items) => {
+    const list = Array.isArray(items?.content) ? items.content : Array.isArray(items) ? items : [];
+    return list.map((ln) => {
+      const product = ln.product || {};
+      const price = Number(ln.price ?? ln.unitPrice ?? product.price ?? 0) || 0;
+      const qty = Number(ln.qty ?? ln.quantity ?? 0) || 0;
+      const discount = Number(ln.discount ?? ln.discountAmount ?? 0) || 0;
+      const tax = Number(ln.tax ?? ln.taxAmount ?? 0) || 0;
+      return {
+        id: ln.id,
+        name: ln.name || product.name || "",
+        code: ln.code || product.code || "",
+        price,
+        qty,
+        discount,
+        tax,
+      };
+    });
+  };
 
   const grandTotal = useMemo(
     () =>
@@ -100,19 +162,41 @@ export default function CustomerDetailPage() {
     [products]
   );
 
-  const [stageHistory, setStageHistory] = useState(() => {
-    const now = new Date();
-    const ts = now.toISOString();
-    const entries = [
-      { id: 1, stage: "Physical Possession", amount: grandTotal, durationDays: 1, modifiedBy: "Simran Singh", timestamp: ts },
-      { id: 2, stage: "Lead", amount: grandTotal, durationDays: 0, modifiedBy: "Simran Singh", timestamp: ts },
-      { id: 3, stage: "13/2", amount: grandTotal, durationDays: 0, modifiedBy: "Simran Singh", timestamp: ts },
-      { id: 4, stage: "13/4", amount: grandTotal, durationDays: 0, modifiedBy: "Simran Singh", timestamp: ts },
-      { id: 5, stage: "DM Application", amount: grandTotal, durationDays: 0, modifiedBy: "Simran Singh", timestamp: ts },
-      { id: 6, stage: "Possession Order", amount: grandTotal, durationDays: 0, modifiedBy: "Simran Singh", timestamp: ts },
-    ];
-    return entries;
-  });
+  const [stageHistory, setStageHistory] = useState([]);
+
+  const ALL_DEAL_STAGES = [
+    "LEAD",
+    "DM_APPLICATION",
+    "POSSESSION_ORDER",
+    "STAGE_13_4",
+    "STAGE_13_2",
+    "LEAD_TO_PHYSICAL_POSSESSION",
+    "PHYSICAL_POSSESSION",
+  ];
+
+  const isUuidLike = (v) => typeof v === "string" && /^[0-9a-fA-F-]{36}$/.test(v);
+
+  async function handleDeleteActivity(type, activityId) {
+    if (!isUuidLike(String(dealId))) return;
+    if (!activityId) return;
+    try {
+      await backendApi.delete(`/deals/${dealId}/activities/${activityId}`);
+      const [tasksRes, eventsRes, callsRes, timelineRes] = await Promise.all([
+        backendApi.get(`/deals/${dealId}/activities?type=TASK`),
+        backendApi.get(`/deals/${dealId}/activities?type=EVENT`),
+        backendApi.get(`/deals/${dealId}/activities?type=CALL`),
+        backendApi.get(`/deals/${dealId}/timeline`),
+      ]);
+      setTasks(adaptActivities(tasksRes));
+      setEvents(adaptActivities(eventsRes));
+      setCalls(adaptActivities(callsRes));
+      setTimeline(adaptTimeline(timelineRes));
+      showSuccess(`${type} deleted successfully`);
+    } catch (err) {
+      console.error("Delete activity failed", err);
+      showApiError("Failed to delete activity", err);
+    }
+  }
 
   useEffect(() => {
     if (!customerId) return;
@@ -129,7 +213,8 @@ export default function CustomerDetailPage() {
       } catch (err) {
         console.error("Failed to load customer", err);
         setError("Failed to load customer: " + err.message);
-        if (!isMounted) setLoadingCustomer(false);
+      } finally {
+        if (isMounted) setLoadingCustomer(false);
       }
     }
 
@@ -143,12 +228,136 @@ export default function CustomerDetailPage() {
       } catch (err) {
         console.error("Failed to load cases", err);
         setError("Failed to load cases: " + err.message);
-        if (!isMounted) setLoadingCases(false);
+      } finally {
+        if (isMounted) setLoadingCases(false);
+      }
+    }
+
+    async function loadDealCrm() {
+      try {
+        let resolvedDealId = null;
+        try {
+          const dealLinkRes = await backendApi.get(`/clients/${customerId}/deal`);
+          resolvedDealId = dealLinkRes?.id || null;
+        } catch (_e) {
+          resolvedDealId = null;
+        }
+
+        if (!resolvedDealId || !isUuidLike(String(resolvedDealId))) {
+          if (isMounted) {
+            setDealId(null);
+            setDeal(null);
+            setTimeline([]);
+            setStageHistory([]);
+            setStatuses([]);
+            setCurrentStage(null);
+            setNotes([]);
+            setTasks([]);
+            setEvents([]);
+            setCalls([]);
+            setProducts([]);
+            setBank(null);
+          }
+          return;
+        }
+
+        if (isMounted) setDealId(resolvedDealId);
+
+        let dealRes = null;
+        try {
+          dealRes = await backendApi.get(`/deals/${resolvedDealId}`);
+        } catch (err) {
+          if (err?.status === 404) {
+            if (isMounted) {
+              setDealId(null);
+              setDeal(null);
+              setTimeline([]);
+              setStageHistory([]);
+              setStatuses([]);
+              setCurrentStage(null);
+              setNotes([]);
+              setTasks([]);
+              setEvents([]);
+              setCalls([]);
+              setProducts([]);
+              setBank(null);
+            }
+            return;
+          }
+          throw err;
+        }
+
+        if (!isMounted) return;
+        setDeal(dealRes || null);
+
+        const [timelineSettled, stagesSettled, notesSettled, tasksSettled, eventsSettled, callsSettled, productsSettled] = await Promise.allSettled([
+          backendApi.get(`/deals/${resolvedDealId}/timeline`),
+          backendApi.get(`/deals/${resolvedDealId}/stages`),
+          backendApi.get(`/deals/${resolvedDealId}/notes`),
+          backendApi.get(`/deals/${resolvedDealId}/activities?type=TASK`),
+          backendApi.get(`/deals/${resolvedDealId}/activities?type=EVENT`),
+          backendApi.get(`/deals/${resolvedDealId}/activities?type=CALL`),
+          backendApi.get(`/deals/${resolvedDealId}/products`),
+        ]);
+
+        if (!isMounted) return;
+
+        setTimeline(timelineSettled.status === "fulfilled" ? adaptTimeline(timelineSettled.value) : []);
+
+        const stageRows = stagesSettled.status === "fulfilled" ? adaptStages(stagesSettled.value) : [];
+        setStageHistory(stageRows);
+        const uniqStages = [];
+        // Always show full pipeline (7 stages). Also include any unexpected stages from history.
+        ALL_DEAL_STAGES.forEach((s) => {
+          if (!uniqStages.includes(s)) uniqStages.push(s);
+        });
+        stageRows.forEach((r) => {
+          if (r.stage && !uniqStages.includes(r.stage)) uniqStages.push(r.stage);
+        });
+        setStatuses(uniqStages);
+        setCurrentStage(stageRows[0]?.stage || dealRes?.stage || null);
+
+        const notesRes = notesSettled.status === "fulfilled" ? notesSettled.value : [];
+        setNotes(Array.isArray(notesRes?.content) ? notesRes.content : notesRes || []);
+        setTasks(tasksSettled.status === "fulfilled" ? adaptActivities(tasksSettled.value) : []);
+        setEvents(eventsSettled.status === "fulfilled" ? adaptActivities(eventsSettled.value) : []);
+        setCalls(callsSettled.status === "fulfilled" ? adaptActivities(callsSettled.value) : []);
+        setProducts(productsSettled.status === "fulfilled" ? adaptDealProducts(productsSettled.value) : []);
+
+        try {
+          const catalog = await backendApi.get(`/products?active=true&size=50`);
+          if (isMounted) setProductCatalog(Array.isArray(catalog?.content) ? catalog.content : catalog || []);
+        } catch (_e) {
+          if (isMounted) setProductCatalog([]);
+        }
+
+        // Load banks for picker
+        try {
+          const banksRes = await backendApi.get("/banks?size=200");
+          if (isMounted) setBanks(Array.isArray(banksRes?.content) ? banksRes.content : banksRes || []);
+        } catch (_e) {
+          if (isMounted) setBanks([]);
+        }
+
+        if (dealRes?.bankId) {
+          try {
+            const bankRes = await backendApi.get(`/banks/${dealRes.bankId}`);
+            if (isMounted) setBank(bankRes || null);
+          } catch (_e) {
+            if (isMounted) setBank(null);
+          }
+        } else {
+          if (isMounted) setBank(null);
+        }
+      } catch (err) {
+        console.error("Failed to load deal CRM", err);
+        if (isMounted) setError(err.message || "Failed to load deal CRM");
       }
     }
 
     loadCustomer();
     loadCases();
+    loadDealCrm();
 
     return () => {
       isMounted = false;
@@ -174,6 +383,7 @@ export default function CustomerDetailPage() {
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [productFormError, setProductFormError] = useState("");
+  const [showProductSearchModal, setShowProductSearchModal] = useState(false);
   const [productForm, setProductForm] = useState({
     productId: "",
     productName: "",
@@ -281,6 +491,25 @@ export default function CustomerDetailPage() {
     }
   }
 
+  async function handleDeleteDealProduct(dealProductId) {
+    if (!isUuidLike(String(dealId))) return;
+    if (!dealProductId) return;
+    try {
+      await backendApi.delete(`/deals/${dealId}/products/${dealProductId}`);
+      const [productsRes, dealRes, timelineRes] = await Promise.all([
+        backendApi.get(`/deals/${dealId}/products`),
+        backendApi.get(`/deals/${dealId}`),
+        backendApi.get(`/deals/${dealId}/timeline`),
+      ]);
+      setProducts(adaptDealProducts(productsRes));
+      setDeal(dealRes || null);
+      setTimeline(adaptTimeline(timelineRes));
+    } catch (err) {
+      console.error("Delete product failed", err);
+      showApiError("Failed to delete product", err);
+    }
+  }
+
   function closeDocViewer() {
     setViewingDoc(null);
   }
@@ -337,8 +566,9 @@ export default function CustomerDetailPage() {
   }
 
   const lastModified = useMemo(() => {
+    if (!Array.isArray(timeline) || timeline.length === 0) return null;
     const latest = timeline.slice().sort((a, b) => new Date(b.time) - new Date(a.time))[0];
-    return latest ? new Date(latest.time) : new Date();
+    return latest?.time ? new Date(latest.time) : null;
   }, [timeline]);
 
   const timelineGroups = useMemo(() => {
@@ -381,35 +611,94 @@ export default function CustomerDetailPage() {
     return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n || 0);
   }
 
-  function handleStageChange(newStage) {
-    const actor = "Simran Singh";
-    const now = new Date();
-    const prevStart = stageStartAt;
-    const durationDays = Math.max(0, Math.floor((now - prevStart) / (1000 * 60 * 60 * 24)));
-    setStageHistory((prev) => [
-      { id: Date.now(), stage: newStage, amount: grandTotal, durationDays, modifiedBy: actor, timestamp: now.toISOString() },
-      ...prev,
-    ]);
-    setCurrentStage(newStage);
-    setStageStartAt(now);
-    setTimeline((prev) => [
-      { id: Date.now(), time: now.toISOString(), actor, message: `Stage updated to '${newStage}'` },
-      ...prev,
-    ]);
+  async function handleStageChange(newStage) {
+    if (!isUuidLike(String(dealId))) return;
+    try {
+      await backendApi.post(`/deals/${dealId}/stages`, { newStage });
+      const [timelineRes, stagesRes] = await Promise.all([
+        backendApi.get(`/deals/${dealId}/timeline`),
+        backendApi.get(`/deals/${dealId}/stages`),
+      ]);
+      setTimeline(adaptTimeline(timelineRes));
+      const stageRows = adaptStages(stagesRes);
+      setStageHistory(stageRows);
+      const uniqStages = [];
+      ALL_DEAL_STAGES.forEach((s) => {
+        if (!uniqStages.includes(s)) uniqStages.push(s);
+      });
+      stageRows.forEach((r) => {
+        if (r.stage && !uniqStages.includes(r.stage)) uniqStages.push(r.stage);
+      });
+      setStatuses(uniqStages);
+      setCurrentStage(stageRows[0]?.stage || newStage);
+      setStageStartAt(new Date());
+    } catch (err) {
+      console.error("Stage change failed", err);
+      showApiError("Failed to change stage", err);
+    }
   }
 
   function openTaskCreate() {
+    setEditingTaskId(null);
     setTaskForm((prev) => ({ ...prev, relatedTo: prev.relatedTo || safeCustomer.name }));
     setIsTaskCreateOpen(true);
   }
 
   function openEventCreate() {
+    setEditingEventId(null);
     setEventForm((prev) => ({ ...prev, relatedTo: prev.relatedTo || safeCustomer.name }));
     setIsEventCreateOpen(true);
   }
 
   function openCallCreate() {
+    setEditingCallId(null);
     setCallForm((prev) => ({ ...prev, relatedTo: prev.relatedTo || safeCustomer.name }));
+    setIsCallCreateOpen(true);
+  }
+
+  function openTaskEdit(t) {
+    if (!t?.id) return;
+    setEditingTaskId(t.id);
+    setTaskForm((prev) => ({
+      ...prev,
+      name: t.name || "",
+      dueDate: t.dueDate ? String(t.dueDate).slice(0, 10) : "",
+      description: t.description || "",
+      status: t.status || "Open",
+      priority: t.priority || prev.priority || "Normal",
+      relatedTo: safeCustomer.name,
+    }));
+    setIsTaskCreateOpen(true);
+  }
+
+  function openEventEdit(e) {
+    if (!e?.id) return;
+    setEditingEventId(e.id);
+    setEventForm((prev) => ({
+      ...prev,
+      title: e.title || e.name || "",
+      from: e.from ? String(e.from) : "",
+      to: e.to ? String(e.to) : "",
+      location: e.location || "",
+      participants: e.participants || "",
+      description: e.description || "",
+      relatedTo: safeCustomer.name,
+    }));
+    setIsEventCreateOpen(true);
+  }
+
+  function openCallEdit(c) {
+    if (!c?.id) return;
+    setEditingCallId(c.id);
+    setCallForm((prev) => ({
+      ...prev,
+      toFrom: c.toFrom || c.subject || "",
+      startTime: c.startTime ? String(c.startTime) : "",
+      callType: c.callType || prev.callType || "Outbound",
+      callStatus: c.callStatus || prev.callStatus || "Planned",
+      duration: c.duration ? String(c.duration) : "",
+      relatedTo: safeCustomer.name,
+    }));
     setIsCallCreateOpen(true);
   }
 
@@ -455,122 +744,313 @@ export default function CustomerDetailPage() {
     setProductSearch("");
   }
 
-  function saveTask() {
-    const now = new Date();
-    const newTask = {
-      id: Date.now(),
-      name: taskForm.name || "New Task",
-      dueDate: taskForm.dueDate || now.toISOString().slice(0, 10),
-      status: taskForm.completed ? "Completed" : taskForm.status || "Open",
-      owner: "Simran Singh",
-      priority: taskForm.priority || "Normal",
-      description: taskForm.description || "",
-      expenseAmount: taskForm.expenseAmount || "",
-    };
-    setTasks((prev) => [newTask, ...prev]);
-    setTaskForm({
-      name: "",
-      dueDate: "",
-      repeat: "Never",
-      reminder: "None",
-      relatedTo: safeCustomer.name,
-      description: "",
-      status: "Open",
-      priority: "Normal",
-      completed: false,
-      expenseAmount: "",
+  function handleProductSelect(product) {
+    setProductForm({
+      productId: product.id,
+      productName: product.name,
+      productCode: product.sku,
+      listPrice: product.price?.toString() || "0",
+      quantity: "1",
+      discount: "0",
+      tax: "0",
     });
-    closeTaskCreate();
+    setProductSearch(`${product.name} (${product.sku})`);
+    setProductFormError("");
   }
 
-  function saveEvent() {
-    const newEvent = {
-      id: Date.now(),
-      title: eventForm.title || "New Event",
-      from: eventForm.from || "",
-      to: eventForm.to || "",
-      host: "Simran Singh",
-      location: eventForm.location || "",
-      participants: eventForm.participants || "",
-      description: eventForm.description || "",
-    };
-    setEvents((prev) => [newEvent, ...prev]);
-    setEventForm({
-      title: "",
-      from: "",
-      to: "",
-      repeat: "Never",
-      reminder: "None",
-      location: "",
-      relatedTo: safeCustomer.name,
-      participants: "",
-      description: "",
-    });
-    closeEventCreate();
+  function openBankPicker() {
+    setBankSearch("");
+    setBankFormError("");
+    setShowBankPicker(true);
   }
 
-  function saveCall() {
-    const now = new Date();
-    const newCall = {
-      id: Date.now(),
-      toFrom: callForm.toFrom || "—",
-      callType: callForm.callType || "Outbound",
-      startTime: callForm.startTime || "",
-      modifiedTime: now.toISOString(),
-      owner: "Simran Singh",
-      duration: callForm.duration || "—",
-      callPurpose: callForm.callPurpose || "",
-      callAgenda: callForm.callAgenda || "",
-      callStatus: callForm.callStatus || "Planned",
-    };
-    setCalls((prev) => [newCall, ...prev]);
-    setCallForm({
-      toFrom: "",
-      startTime: "",
-      reminder: "None",
-      callType: "Outbound",
-      callStatus: "Planned",
-      relatedTo: safeCustomer.name,
-      callPurpose: "",
-      callAgenda: "",
-      duration: "",
-    });
-    closeCallCreate();
+  function closeBankPicker() {
+    setShowBankPicker(false);
+    setBankSearch("");
+    setBankFormError("");
   }
 
-  function saveProductFromModal() {
-    const price = Number(productForm.listPrice);
-    const qty = Number(productForm.quantity);
-    const discount = Number(productForm.discount) || 0;
-    const tax = Number(productForm.tax) || 0;
+  function selectBank(bankItem) {
+    setBank(bankItem);
+    closeBankPicker();
+  }
 
-    if (!productForm.productName || Number.isNaN(price) || price <= 0 || Number.isNaN(qty) || qty <= 0) {
-      setProductFormError("Please select a product and enter a valid price and quantity.");
-      return;
+  async function ensureDealId() {
+    if (isUuidLike(String(dealId))) return String(dealId);
+
+    try {
+      const link = await backendApi.get(`/clients/${customerId}/deal`);
+      const resolved = link?.id ? String(link.id) : null;
+      if (resolved && isUuidLike(resolved)) {
+        setDealId(resolved);
+        return resolved;
+      }
+    } catch (_e) {
+      // ignore and fall back to create
     }
 
-    const id = Date.now();
+    const clientIdNum = Number(customerId);
+    if (!Number.isFinite(clientIdNum)) return null;
 
-    setProducts((prev) => [
-      ...prev,
-      {
-        id,
-        name: productForm.productName,
-        code: productForm.productCode || "PRD",
-        price,
-        qty,
-        discount,
-        tax,
-      },
-    ]);
+    try {
+      const created = await backendApi.post("/deals", {
+        clientId: clientIdNum,
+        name: safeCustomer?.name || "New Deal",
+        branchName: safeCustomer?.branchName || safeCustomer?.address || "",
+        bankId: bank?.id || null,
+      });
+      const createdId = created?.id ? String(created.id) : null;
+      if (createdId && isUuidLike(createdId)) {
+        setDealId(createdId);
+        return createdId;
+      }
+    } catch (err) {
+      showApiError("Failed to create deal", err);
+      return null;
+    }
 
-    closeProductModal();
+    return null;
   }
 
-  function closeAllConfigSidebars() {
-    setIsTaskConfigOpen(false);
-    setIsEventConfigOpen(false);
-    setIsCallConfigOpen(false);
+  async function saveTask() {
+    const ensuredDealId = await ensureDealId();
+    if (!ensuredDealId) {
+      showApiError("Deal not found for this customer", new Error("Deal not found"));
+      return;
+    }
+    try {
+      if (editingTaskId) {
+        await backendApi.put(`/deals/${ensuredDealId}/activities/${editingTaskId}`, {
+          type: "TASK",
+          name: taskForm.name || "Task",
+          description: taskForm.description || "",
+          dueDate: taskForm.dueDate ? new Date(taskForm.dueDate).toISOString() : undefined,
+          priority: taskForm.priority || "Normal",
+          status:
+            taskForm.status === "Completed"
+              ? "COMPLETED"
+              : taskForm.status === "In Progress"
+                ? "IN_PROGRESS"
+                : "PENDING",
+        });
+      } else {
+        await backendApi.post(`/deals/${ensuredDealId}/activities`, {
+          type: "TASK",
+          name: taskForm.name || "Task",
+          description: taskForm.description || "",
+          dueDate: taskForm.dueDate ? new Date(taskForm.dueDate).toISOString() : undefined,
+          priority: taskForm.priority || "Normal",
+          status:
+            taskForm.status === "Completed"
+              ? "COMPLETED"
+              : taskForm.status === "In Progress"
+                ? "IN_PROGRESS"
+                : "PENDING",
+        });
+      }
+      const [tasksRes, timelineRes] = await Promise.all([
+        backendApi.get(`/deals/${ensuredDealId}/activities?type=TASK`),
+        backendApi.get(`/deals/${ensuredDealId}/timeline`),
+      ]);
+      setTasks(adaptActivities(tasksRes));
+      setTimeline(adaptTimeline(timelineRes));
+      showSuccess(editingTaskId ? "Task updated successfully" : "Task created successfully");
+      setEditingTaskId(null);
+      setTaskForm({
+        name: "",
+        dueDate: "",
+        repeat: "Never",
+        reminder: "None",
+        relatedTo: safeCustomer.name,
+        description: "",
+        status: "Open",
+        priority: "Normal",
+        completed: false,
+        expenseAmount: "",
+      });
+      closeTaskCreate();
+    } catch (err) {
+      console.error("Create task failed", err);
+      showApiError("Failed to create task", err);
+    }
+  }
+
+  async function saveEvent() {
+    const ensuredDealId = await ensureDealId();
+    if (!ensuredDealId) {
+      showApiError("Deal not found for this customer", new Error("Deal not found"));
+      return;
+    }
+    try {
+      if (editingEventId) {
+        await backendApi.put(`/deals/${ensuredDealId}/activities/${editingEventId}`, {
+          type: "EVENT",
+          name: eventForm.title || "Event",
+          description: eventForm.description || "",
+          startDate: eventForm.from ? new Date(eventForm.from).toISOString() : undefined,
+          endDate: eventForm.to ? new Date(eventForm.to).toISOString() : undefined,
+        });
+      } else {
+        await backendApi.post(`/deals/${ensuredDealId}/activities`, {
+          type: "EVENT",
+          name: eventForm.title || "Event",
+          description: eventForm.description || "",
+          startDate: eventForm.from ? new Date(eventForm.from).toISOString() : undefined,
+          endDate: eventForm.to ? new Date(eventForm.to).toISOString() : undefined,
+          status: "PENDING",
+        });
+      }
+      const [eventsRes, timelineRes] = await Promise.all([
+        backendApi.get(`/deals/${ensuredDealId}/activities?type=EVENT`),
+        backendApi.get(`/deals/${ensuredDealId}/timeline`),
+      ]);
+      setEvents(adaptActivities(eventsRes));
+      setTimeline(adaptTimeline(timelineRes));
+      showSuccess(editingEventId ? "Event updated successfully" : "Event created successfully");
+      setEditingEventId(null);
+      setEventForm({
+        title: "",
+        from: "",
+        to: "",
+        repeat: "Never",
+        reminder: "None",
+        location: "",
+        relatedTo: safeCustomer.name,
+        participants: "",
+        description: "",
+      });
+      closeEventCreate();
+    } catch (err) {
+      console.error("Create event failed", err);
+      showApiError("Failed to create event", err);
+    }
+  }
+
+  async function saveCall() {
+    const ensuredDealId = await ensureDealId();
+    if (!ensuredDealId) {
+      showApiError("Deal not found for this customer", new Error("Deal not found"));
+      return;
+    }
+    try {
+      if (editingCallId) {
+        await backendApi.put(`/deals/${ensuredDealId}/activities/${editingCallId}`, {
+          type: "CALL",
+          name: callForm.toFrom || "Call",
+          startDate: callForm.startTime ? new Date(callForm.startTime).toISOString() : undefined,
+          description: callForm.callAgenda || "",
+        });
+      } else {
+        await backendApi.post(`/deals/${ensuredDealId}/activities`, {
+          type: "CALL",
+          name: callForm.toFrom || "Call",
+          description: callForm.callAgenda || "",
+          startDate: callForm.startTime ? new Date(callForm.startTime).toISOString() : undefined,
+          status: "PENDING",
+        });
+      }
+      const [callsRes, timelineRes] = await Promise.all([
+        backendApi.get(`/deals/${ensuredDealId}/activities?type=CALL`),
+        backendApi.get(`/deals/${ensuredDealId}/timeline`),
+      ]);
+      setCalls(adaptActivities(callsRes));
+      setTimeline(adaptTimeline(timelineRes));
+      showSuccess(editingCallId ? "Call updated successfully" : "Call created successfully");
+      setEditingCallId(null);
+      setCallForm({
+        toFrom: "",
+        startTime: "",
+        reminder: "None",
+        callType: "Outbound",
+        callStatus: "Planned",
+        relatedTo: safeCustomer.name,
+        callPurpose: "",
+        callAgenda: "",
+        duration: "",
+      });
+      closeCallCreate();
+    } catch (err) {
+      console.error("Create call failed", err);
+      showApiError("Failed to create call", err);
+    }
+  }
+
+  async function saveProductFromModal() {
+    if (!isUuidLike(String(dealId))) return;
+    const qty = Number(productForm.quantity) || 0;
+    let selectedProductId = productForm.productId;
+    if (!selectedProductId && productSearch.trim()) {
+      const qRaw = productSearch.trim();
+      const q = qRaw.toLowerCase();
+      const match =
+        productCatalog.find((p) => String(p?.id) === qRaw) ||
+        productCatalog.find((p) => p?.name?.toLowerCase() === q || p?.code?.toLowerCase() === q) ||
+        productCatalog.find(
+          (p) =>
+            (p?.name || "").toLowerCase().includes(q) ||
+            (p?.code || "").toLowerCase().includes(q)
+        );
+      if (match?.id) {
+        selectedProductId = String(match.id);
+        setProductForm((prev) => ({
+          ...prev,
+          productId: String(match.id),
+          productName: match.name,
+          productCode: match.code,
+          listPrice: String(match.price),
+        }));
+      }
+    }
+
+    if (!selectedProductId || Number.isNaN(qty) || qty <= 0) {
+      setProductFormError(
+        productSearch.trim() && !selectedProductId
+          ? "No product matched your search. Please select a product from the list."
+          : "Please select a product and enter a valid quantity."
+      );
+      return;
+    }
+    try {
+      await backendApi.post(`/deals/${dealId}/products`, {
+        productId: selectedProductId,
+        quantity: qty,
+        listPrice: Number(productForm.listPrice) || 0,
+        discount: Number(productForm.discount) || 0,
+        tax: Number(productForm.tax) || 0,
+      });
+      const [productsRes, dealRes, timelineRes] = await Promise.all([
+        backendApi.get(`/deals/${dealId}/products`),
+        backendApi.get(`/deals/${dealId}`),
+        backendApi.get(`/deals/${dealId}/timeline`),
+      ]);
+      setProducts(adaptDealProducts(productsRes));
+      setDeal(dealRes || null);
+      setTimeline(adaptTimeline(timelineRes));
+      closeProductModal();
+    } catch (err) {
+      console.error("Add product failed", err);
+      showApiError("Failed to add product", err);
+    }
+  }
+
+  async function handleAddNote() {
+    if (!isUuidLike(String(dealId))) return;
+    if (!noteText.trim()) return;
+    try {
+      await backendApi.post(`/deals/${dealId}/notes`, { title: noteTitle || "Note", text: noteText });
+      const [notesRes, timelineRes] = await Promise.all([
+        backendApi.get(`/deals/${dealId}/notes`),
+        backendApi.get(`/deals/${dealId}/timeline`),
+      ]);
+      setNotes(Array.isArray(notesRes?.content) ? notesRes.content : notesRes || []);
+      setTimeline(adaptTimeline(timelineRes));
+      setNoteText("");
+      setNoteTitle("");
+      setNoteFile(null);
+    } catch (err) {
+      console.error("Create note failed", err);
+      showApiError("Failed to add note", err);
+    }
   }
 
   return (
@@ -608,13 +1088,13 @@ export default function CustomerDetailPage() {
               <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-600">
                 <span className="inline-flex items-center gap-1 rounded-full bg-slate-100/70 px-3 py-1">
                   <Calendar className="h-3.5 w-3.5 text-indigo-500" />
-                  Closing Date • Nov 30, 2023
+                  Closing Date • {deal?.closingDate || "—"}
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-full bg-slate-100/70 px-3 py-1">
                   <span className="h-5 w-5 rounded-full bg-gradient-to-br from-indigo-500 to-sky-500 text-[10px] font-semibold text-white flex items-center justify-center">
-                    RP
+                    {(deal?.ownerName || deal?.owner || "--").slice(0, 2).toUpperCase()}
                   </span>
-                  <span className="font-medium text-slate-700">Raj Pacharne</span>
+                  <span className="font-medium text-slate-700">{deal?.ownerName || deal?.owner || "—"}</span>
                   <span className="text-slate-400">Owner</span>
                 </span>
                 <button
@@ -731,17 +1211,29 @@ export default function CustomerDetailPage() {
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                     Related Bank
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-xs font-semibold text-white shadow-md shadow-emerald-500/30">
-                      AH
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-slate-900">
-                        Aspir Housing Finance
+                  <button
+                    type="button"
+                    onClick={openBankPicker}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50"
+                  >
+                    {bank ? (
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-xs font-semibold text-white shadow-md shadow-emerald-500/30">
+                          {(bank.name || "BK").slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold text-slate-900">{bank.name}</div>
+                          <div className="text-xs text-slate-500">{bank.branch || "No branch"}</div>
+                        </div>
+                        <Edit3 className="h-4 w-4 text-slate-400" />
                       </div>
-                      <div className="text-xs text-slate-500">Rahuri Branch</div>
-                    </div>
-                  </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-slate-500">
+                        <Plus className="h-4 w-4" />
+                        <span className="text-sm">Select Bank</span>
+                      </div>
+                    )}
+                  </button>
                 </div>
                 <div className="mb-4 space-y-2">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -758,18 +1250,20 @@ export default function CustomerDetailPage() {
                   <div className="space-y-2 text-xs text-slate-700">
                     <div className="flex items-center justify-between rounded-lg bg-white/70 px-3 py-2">
                       <span className="text-slate-500">Outstanding Amount</span>
-                      <span className="font-semibold text-slate-900">--</span>
+                      <span className="font-semibold text-slate-900">{formatCurrency(deal?.outstandingAmount)}</span>
                     </div>
                     <div className="flex items-center justify-between rounded-lg bg-white/70 px-3 py-2">
                       <span className="text-slate-500">Required Amount</span>
-                      <span className="font-semibold text-slate-900">--</span>
+                      <span className="font-semibold text-slate-900">{formatCurrency(deal?.requiredAmount)}</span>
                     </div>
                   </div>
                 </div>
-                <div className="mt-5 border-t border-dashed border-slate-200 pt-3 text-[11px] text-slate-500">
-                  Last modified on {lastModified.toLocaleDateString(undefined, { weekday: "long" })},{" "}
-                  {lastModified.toLocaleTimeString()}
-                </div>
+                {lastModified && (
+                  <div className="mt-5 border-t border-dashed border-slate-200 pt-3 text-[11px] text-slate-500">
+                    Last modified on {lastModified.toLocaleDateString(undefined, { weekday: "long" })},{" "}
+                    {lastModified.toLocaleTimeString()}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -871,13 +1365,7 @@ export default function CustomerDetailPage() {
                   />
                   <div className="mt-3 flex items-center gap-3">
                     <button
-                      onClick={() => {
-                        if (!noteText.trim()) return;
-                        setNotes((prev) => [{ id: Date.now(), title: noteTitle || "Note", text: noteText, file: noteFile }, ...prev]);
-                        setNoteText("");
-                        setNoteTitle("");
-                        setNoteFile(null);
-                      }}
+                      onClick={handleAddNote}
                       className="rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-emerald-500/30 transition hover:translate-y-[1px] hover:shadow-lg disabled:cursor-not-allowed disabled:bg-emerald-300"
                     >
                       Save
@@ -1045,12 +1533,17 @@ export default function CustomerDetailPage() {
                                 <div className="flex items-center gap-2">
                                   <button
                                     type="button"
+                                    onClick={() => openTaskEdit(t)}
                                     className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-indigo-300 hover:text-indigo-700"
                                   >
                                     <Edit3 className="h-3.5 w-3.5" />
                                   </button>
                                   <button
                                     type="button"
+                                    onClick={async () => {
+                                      if (!confirm("Delete this task?")) return;
+                                      await handleDeleteActivity("Task", t.id);
+                                    }}
                                     className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-rose-500 shadow-sm transition hover:border-rose-300 hover:text-rose-600"
                                   >
                                     <TrashIcon />
@@ -1117,7 +1610,7 @@ export default function CustomerDetailPage() {
                                 </td>
                                 <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{e.from || e.date}</td>
                                 <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{e.to || "—"}</td>
-                                <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{e.owner || e.host || "Simran Singh"}</td>
+                                <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{e.owner || e.host || "—"}</td>
                                 {eventColumnConfig.location && (
                                   <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{e.location || "—"}</td>
                                 )}
@@ -1125,12 +1618,17 @@ export default function CustomerDetailPage() {
                                   <div className="flex items-center gap-2">
                                     <button
                                       type="button"
+                                      onClick={() => openEventEdit(e)}
                                       className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-indigo-300 hover:text-indigo-700"
                                     >
                                       <Edit3 className="h-3.5 w-3.5" />
                                     </button>
                                     <button
                                       type="button"
+                                      onClick={async () => {
+                                        if (!confirm("Delete this event?")) return;
+                                        await handleDeleteActivity("Event", e.id);
+                                      }}
                                       className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-rose-500 shadow-sm transition hover:border-rose-300 hover:text-rose-600"
                                     >
                                       <TrashIcon />
@@ -1205,7 +1703,7 @@ export default function CustomerDetailPage() {
                                 <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{c.callType || "Outbound"}</td>
                                 <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{c.startTime || c.date}</td>
                                 <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{c.modifiedTime || "—"}</td>
-                                <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{c.owner || "Simran Singh"}</td>
+                                <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{c.owner || "—"}</td>
                                 <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{c.duration || "—"}</td>
                                 {callColumnConfig.purpose && (
                                   <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{c.callPurpose || "—"}</td>
@@ -1214,12 +1712,17 @@ export default function CustomerDetailPage() {
                                   <div className="flex items-center gap-2">
                                     <button
                                       type="button"
+                                      onClick={() => openCallEdit(c)}
                                       className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-indigo-300 hover:text-indigo-700"
                                     >
                                       <Edit3 className="h-3.5 w-3.5" />
                                     </button>
                                     <button
                                       type="button"
+                                      onClick={async () => {
+                                        if (!confirm("Delete this call?")) return;
+                                        await handleDeleteActivity("Call", c.id);
+                                      }}
                                       className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-rose-500 shadow-sm transition hover:border-rose-300 hover:text-rose-600"
                                     >
                                       <TrashIcon />
@@ -1539,6 +2042,10 @@ export default function CustomerDetailPage() {
                                 </button>
                                 <button
                                   type="button"
+                                  onClick={async () => {
+                                    if (!confirm("Delete this product?")) return;
+                                    await handleDeleteDealProduct(p.id);
+                                  }}
                                   className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-rose-500 shadow-sm transition hover:border-rose-300 hover:text-rose-600"
                                 >
                                   <TrashIcon />
@@ -1643,12 +2150,14 @@ export default function CustomerDetailPage() {
                         <input
                           type="text"
                           value={productSearch}
+                          onClick={() => setShowProductSearchModal(true)}
                           onChange={(e) => {
                             setProductSearch(e.target.value);
                             setProductFormError("");
                           }}
                           placeholder="Search products by name or code"
-                          className="w-full border-none bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                          className="w-full border-none bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none cursor-pointer"
+                          readOnly
                         />
                         <div className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1 text-xs">
                           {productCatalog
@@ -1670,7 +2179,9 @@ export default function CustomerDetailPage() {
                                     productId: String(p.id),
                                     productName: p.name,
                                     productCode: p.code,
-                                    listPrice: String(p.price),
+                                    listPrice: String(p.price || 0),
+                                    discount: "0",
+                                    tax: "0",
                                   }));
                                   setProductSearch(`${p.name} (${p.code})`);
                                   setProductFormError("");
@@ -2486,6 +2997,131 @@ export default function CustomerDetailPage() {
         )}
       </div>
     </div>
+
+    {/* Bank Picker Modal */}
+    {showBankPicker && (
+      <>
+        <div
+          className="fixed inset-0 z-[65] bg-slate-900/60 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]"
+          onClick={closeBankPicker}
+        />
+        <div className="fixed inset-0 z-[70] flex items-center justify-center px-4 py-6">
+          <div
+            className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 shadow-2xl shadow-slate-900/50 animate-[scaleIn_0.2s_ease-out]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between border-b border-slate-200/80 px-5 py-4">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Select Bank</div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  Choose a bank to associate with this deal
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeBankPicker}
+                className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] flex-1 overflow-y-auto px-5 py-4">
+              {bankFormError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                  {bankFormError}
+                </div>
+              )}
+
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={bankSearch}
+                    onChange={(e) => {
+                      setBankSearch(e.target.value);
+                      setBankFormError("");
+                    }}
+                    placeholder="Search banks by name, branch, owner..."
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {banks
+                  .filter((b) => {
+                    const q = bankSearch.trim().toLowerCase();
+                    return (
+                      b.name?.toLowerCase().includes(q) ||
+                      b.branch?.toLowerCase().includes(q) ||
+                      b.owner?.toLowerCase().includes(q) ||
+                      b.phone?.includes(q)
+                    );
+                  })
+                  .map((bankItem) => (
+                    <div
+                      key={bankItem.id}
+                      onClick={() => selectBank(bankItem)}
+                      className="flex items-center justify-between rounded-xl border border-slate-200 p-4 hover:bg-slate-50 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+                          <Building2 className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-slate-900">{bankItem.name}</div>
+                          <div className="text-xs text-slate-500">
+                            {bankItem.branch} • {bankItem.owner}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        <ChevronRight className="h-4 w-4" />
+                      </div>
+                    </div>
+                  ))}
+              </div>
+
+              {banks.filter((b) => {
+                const q = bankSearch.trim().toLowerCase();
+                return (
+                  b.name?.toLowerCase().includes(q) ||
+                  b.branch?.toLowerCase().includes(q) ||
+                  b.owner?.toLowerCase().includes(q) ||
+                  b.phone?.includes(q)
+                );
+              }).length === 0 && (
+                <div className="py-8 text-center text-sm text-slate-500">
+                  No banks found. <a href="/bank" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Create a new bank</a>
+                </div>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 border-t border-slate-200 bg-white px-5 py-4">
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeBankPicker}
+                  className="rounded-full border border-slate-300 px-4 py-2 text-xs font-medium text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    )}
+
+    <SearchSelectModal
+      isOpen={showProductSearchModal}
+      onClose={() => setShowProductSearchModal(false)}
+      onSelect={handleProductSelect}
+      entityType="product"
+      placeholder="Search products by name or code"
+    />
     </DashboardLayout>
 
   );
@@ -2526,3 +3162,4 @@ function TrashIcon() {
     </svg>
   );
 }
+

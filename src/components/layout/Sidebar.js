@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -126,6 +126,18 @@ export default function Sidebar({
       icon: "expenses",
     },
     {
+      key: "bank",
+      label: "Bank",
+      href: "/bank",
+      icon: "bank",
+    },
+    {
+      key: "products",
+      label: "Products",
+      href: "/products",
+      icon: "products",
+    },
+    {
       key: "sites",
       label: "Sites",
       href: "/sites",
@@ -158,7 +170,17 @@ export default function Sidebar({
   const menuItems = items.length > 0 ? items : defaultItems;
 
   const pathname = usePathname();
-  const [openSection, setOpenSection] = useState(null);
+  const [openSection, setOpenSection] = useState(() => {
+    if (!sections || sections.length === 0) return null;
+    const found = sections.find((section) =>
+      section.items?.some((item) => {
+        if (!item?.href) return false;
+        if (item.href === "/") return pathname === "/";
+        return pathname?.startsWith(item.href);
+      })
+    );
+    return found?.key || sections[0]?.key || null;
+  });
 
   const accentStyles = useMemo(
     () => ({
@@ -253,20 +275,6 @@ export default function Sidebar({
       return pathname?.startsWith(item.href);
     }
   };
-
-  useEffect(() => {
-    if (!sections || sections.length === 0) return;
-
-    const found = sections.find((section) =>
-      section.items?.some((item) => isItemActive(item))
-    );
-
-    if (found) {
-      setOpenSection(found.key);
-    } else {
-      setOpenSection(sections[0]?.key || null);
-    }
-  }, [pathname, sections]);
 
   return (
     <aside className="hidden md:flex md:w-20 lg:w-72 md:flex-col md:gap-4 md:fixed md:h-screen md:left-0 md:top-0 md:z-10 md:px-3 md:py-4">

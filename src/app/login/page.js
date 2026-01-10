@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { backendApi } from "@/services/api";
-import { User, Lock, Mail, Smartphone, Building2, Eye, EyeOff } from "lucide-react";
+import { User, Lock, Mail, Smartphone, Building2, Eye, EyeOff, Sparkles } from "lucide-react";
+import { toast } from "react-toastify";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -75,6 +76,8 @@ export default function LoginPage() {
           localStorage.setItem("user_data", JSON.stringify(response.user));
         }
 
+        toast.success(`Welcome back, ${response.user.name || response.user.email}!`);
+
         // Redirect based on user role
         switch (response.user.roleName) {
           case "Admin":
@@ -91,9 +94,11 @@ export default function LoginPage() {
         }
       } else {
         setError("Invalid credentials");
+        toast.error("Invalid credentials");
       }
     } catch (err) {
       setError("Login failed. Please check your credentials.");
+      toast.error("Login failed. Please check your credentials.");
       console.error("Login error:", err);
     } finally {
       setLoading(false);
@@ -101,19 +106,30 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4">
-      <div className="w-full max-w-md">
-        {/* Company Logo/Header */}
+    <div className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center p-4">
+      {/* Animated background elements */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse"></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse"></div>
+      </div>
+
+      <div className="relative z-10 w-full max-w-md">
+        {/* Logo and Title */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-600 rounded-xl mb-4">
-            <Building2 className="text-white" size={32} />
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-xl mb-4">
+            <Building2 className="w-8 h-8 text-indigo-600" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Yash Enterprises</h1>
-          <p className="text-gray-600">Sign in to access your dashboard</p>
+          <h1 className="text-3xl font-bold text-white mb-2">Yash Enterprises</h1>
+          <p className="text-purple-100">Enterprise Resource Management</p>
         </div>
 
         {/* Login Form */}
-        <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-200">
+        <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-8 border border-white/20">
+          <div className="flex items-center gap-2 mb-6">
+            <Sparkles className="w-5 h-5 text-indigo-600" />
+            <h2 className="text-2xl font-bold text-gray-900">Welcome Back</h2>
+          </div>
           <form onSubmit={handleSubmit} className="space-y-6">
             
             {/* Organization Selection */}
@@ -125,7 +141,7 @@ export default function LoginPage() {
                 value={selectedOrganization}
                 onChange={(e) => setSelectedOrganization(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white/50 backdrop-blur-sm"
               >
                 <option value="">Select Organization</option>
                 {organizations.map((org) => (
@@ -183,7 +199,7 @@ export default function LoginPage() {
                   value={loginType === "email" ? email : mobile}
                   onChange={(e) => loginType === "email" ? setEmail(e.target.value) : setMobile(e.target.value)}
                   required
-                  className="w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white/50 backdrop-blur-sm"
                 />
               </div>
             </div>
@@ -201,7 +217,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white/50 backdrop-blur-sm"
                 />
                 <button
                   type="button"
@@ -224,7 +240,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading || !selectedOrganization}
-              className="w-full flex items-center justify-center px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              className="w-full flex items-center justify-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-lg"
             >
               {loading ? (
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -234,20 +250,22 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Development Info */}
-          <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-600 text-center">
-              <strong>Development Login:</strong><br />
-              Admin: admin@yashenterprises.com / admin123<br />
-              Manager: manager@yashenterprises.com / manager123<br />
-              Employee: employee@yashenterprises.com / employee123
-            </p>
+          {/* Demo Credentials */}
+          <div className="mt-6 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+            <p className="text-xs font-medium text-indigo-800 mb-2">Demo Credentials:</p>
+            <div className="text-xs text-indigo-600 space-y-1">
+              <p><strong>Admin:</strong> admin@yashenterprises.com / admin123</p>
+              <p><strong>Manager:</strong> manager@yashenterprises.com / manager123</p>
+              <p><strong>Employee:</strong> employee@yashenterprises.com / employee123</p>
+            </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="text-center mt-6 text-sm text-gray-500">
-          <p>&copy; 2025 Yash Enterprises. All rights reserved.</p>
+        <div className="text-center mt-8">
+          <p className="text-purple-100 text-sm">
+            © 2026 Yash Enterprises. All rights reserved.
+          </p>
         </div>
       </div>
     </div>

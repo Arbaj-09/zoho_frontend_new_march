@@ -5,8 +5,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Pencil, Trash2, Plus, Search, Users, UserPlus, Eye } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { backendApi } from '@/services/api';
-import { toast, ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import { toast } from 'react-toastify';
 
 export default function TeamsPage() {
   const router = useRouter();
@@ -280,18 +279,6 @@ export default function TeamsPage() {
           </div>
         </div>
       </div>
-      <ToastContainer
-        position="top-right"
-        autoClose={3000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="light"
-      />
     </DashboardLayout>
   );
 }

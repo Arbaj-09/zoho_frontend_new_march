@@ -7,17 +7,19 @@ import { Clock, Calendar, User, LogOut, Coffee, Target, CheckCircle } from 'luci
 
 export default function EmployeeDashboard() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
+  const [user] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const userData = localStorage.getItem("user_data");
+    if (!userData) return null;
+    try {
+      return JSON.parse(userData);
+    } catch (_e) {
+      return null;
+    }
+  });
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const userData = localStorage.getItem("user_data");
-      if (userData) {
-        setUser(JSON.parse(userData));
-      }
-    }
-
     // Update time every minute
     const timer = setInterval(() => {
       setCurrentTime(new Date());
@@ -104,7 +106,7 @@ export default function EmployeeDashboard() {
                   Welcome back, {user?.firstName || 'Employee'}! 👋
                 </h1>
                 <p className="text-gray-600 mt-2">
-                  Here's your dashboard for today
+                  Here&apos;s your dashboard for today
                 </p>
               </div>
               <div className="text-right">

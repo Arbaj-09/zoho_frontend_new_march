@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { ToastContainer, toast } from 'react-toastify';
+import { toast } from 'react-toastify';
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
 
@@ -120,7 +120,6 @@ export default function DashboardLayout({ header, children }) {
           </main>
         </div>
       </div>
-      <ToastContainer position="top-right" autoClose={2000} hideProgressBar />
     </div>
   );
 }

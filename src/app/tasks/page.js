@@ -80,7 +80,7 @@ export default function TasksPage() {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-900">Tasks</h1>
-                        <p className="text-gray-500">Manage your team's tasks and progress</p>
+                        <p className="text-gray-500">Manage your team&apos;s tasks and progress</p>
                     </div>
                     <Button onClick={handleCreate}>
                         <Plus className="h-4 w-4 mr-2" />

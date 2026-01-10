@@ -227,7 +227,7 @@ export default function CaseDetailModalPage() {
               <p className="text-sm text-slate-500">Loading documents...</p>
             ) : docs.length === 0 ? (
               <p className="text-sm text-slate-500">
-                No documents uploaded. Click "Upload Doc" to add a PDF.
+                No documents uploaded. Click &quot;Upload Doc&quot; to add a PDF.
               </p>
             ) : (
               <div className="grid grid-cols-2 gap-4">

@@ -1,22 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Users, Calendar, TrendingUp, Clock, Target, Award, LogOut, BarChart3 } from 'lucide-react';
 
 export default function ManagerDashboard() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const userData = localStorage.getItem("user_data");
-      if (userData) {
-        setUser(JSON.parse(userData));
-      }
+  const [user] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const userData = localStorage.getItem("user_data");
+    if (!userData) return null;
+    try {
+      return JSON.parse(userData);
+    } catch (_e) {
+      return null;
     }
-  }, []);
+  });
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
