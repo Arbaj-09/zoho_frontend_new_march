@@ -4,7 +4,14 @@ import { useState, useEffect } from "react";
 import { Plus, Search, Edit2, Trash2, Eye, Building2, Phone, Globe, MapPin, Settings, X } from "lucide-react";
 import { backendApi } from "@/services/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import CustomFieldsModal from "@/components/CustomFieldsModal";
+import DynamicFieldsSection from "@/components/DynamicFieldsSection";
+import {
+  fetchFieldDefinitions,
+  fetchFieldValues,
+  normalizeDefinitions,
+  normalizeValues,
+  upsertFieldValue,
+} from "@/services/crmFields";
 import { toast } from "react-toastify";
 
 export default function BanksPage() {
@@ -17,7 +24,6 @@ export default function BanksPage() {
   const [form, setForm] = useState({
     name: "",
     branch: "",
-    owner: "",
     phone: "",
     website: "",
     address: "",
@@ -25,10 +31,38 @@ export default function BanksPage() {
     taluka: "",
     pinCode: "",
     description: "",
+    customFields: {},
   });
-  const [customFields, setCustomFields] = useState({});
-  const [showCustomFieldsModal, setShowCustomFieldsModal] = useState(false);
+  const [fieldDefs, setFieldDefs] = useState([]);
   const [dynamicColumns, setDynamicColumns] = useState([]);
+  const [bankFieldValuesById, setBankFieldValuesById] = useState({});
+  const [currentFieldValues, setCurrentFieldValues] = useState({});
+
+  const getLoggedInUser = () => {
+    if (typeof window === "undefined") return { name: "Admin", role: "Administrator" };
+    try {
+      const raw = localStorage.getItem("user_data");
+      const obj = raw ? JSON.parse(raw) : null;
+      const name = obj?.name || obj?.fullName || obj?.username || obj?.email || "Admin";
+      const role = obj?.role || obj?.designation || "Administrator";
+      return { name, role };
+    } catch {
+      return { name: "Admin", role: "Administrator" };
+    }
+  };
+
+  const fetchBankFieldDefinitions = async () => {
+    try {
+      const defsRes = await fetchFieldDefinitions("bank");
+      const defs = normalizeDefinitions(defsRes);
+      setFieldDefs(defs);
+      setDynamicColumns(defs.filter((d) => d.active !== false).map((d) => d.fieldKey));
+    } catch (err) {
+      console.error("Failed to fetch bank field definitions", err);
+      setFieldDefs([]);
+      setDynamicColumns([]);
+    }
+  };
 
   const fetchBanks = async () => {
     setLoading(true);
@@ -42,14 +76,21 @@ export default function BanksPage() {
         setSelectedBank(null);
       }
       
-      // Extract dynamic columns from custom fields
-      const dynamicKeys = new Set();
-      banksData.forEach(bank => {
-        if (bank.customFields) {
-          Object.keys(bank.customFields).forEach(key => dynamicKeys.add(key));
-        }
-      });
-      setDynamicColumns([...dynamicKeys]);
+      // dynamic columns from definitions
+      setDynamicColumns((fieldDefs || []).filter((d) => d.active !== false).map((d) => d.fieldKey));
+
+      // values map for list table
+      const entries = await Promise.all(
+        (banksData || []).map(async (b) => {
+          try {
+            const vals = await fetchFieldValues("bank", b.id);
+            return [b.id, normalizeValues(vals)];
+          } catch (_e) {
+            return [b.id, {}];
+          }
+        })
+      );
+      setBankFieldValuesById(Object.fromEntries(entries));
     } catch (err) {
       console.error("Failed to fetch banks:", err);
     } finally {
@@ -58,6 +99,7 @@ export default function BanksPage() {
   };
 
   useEffect(() => {
+    fetchBankFieldDefinitions();
     fetchBanks();
   }, []);
 
@@ -72,7 +114,7 @@ export default function BanksPage() {
   const filtered = banks.filter((b) =>
     (b.bankName || b.name)?.toLowerCase().includes(search.toLowerCase()) ||
     (b.branchName || b.branch)?.toLowerCase().includes(search.toLowerCase()) ||
-    b.owner?.toLowerCase().includes(search.toLowerCase())
+    b.phone?.toLowerCase().includes(search.toLowerCase())
   );
 
   const handleCreateOrUpdate = async () => {
@@ -89,7 +131,7 @@ export default function BanksPage() {
       
       // Create payload with correct field names (no ownerId)
       const payload = {
-        bankName: form.name,
+        name: form.name,
         branchName: form.branch,
         phone: form.phone,
         website: form.website,
@@ -98,8 +140,8 @@ export default function BanksPage() {
         taluka: form.taluka,
         pinCode: form.pinCode,
         description: form.description,
+        customFields: JSON.stringify(form.customFields || {}),
         active: true,
-        customFields: customFields,
       };
       
       // Validate website URL
@@ -114,6 +156,7 @@ export default function BanksPage() {
       
       console.log('Sending payload:', payload);
       
+      let savedId = selectedBank?.id;
       if (selectedBank) {
         if (!selectedBank?.id) {
           toast.error("Selected bank no longer exists. Reloading list...");
@@ -123,10 +166,21 @@ export default function BanksPage() {
           return;
         }
         await backendApi.put(`/banks/${selectedBank.id}`, payload);
+        savedId = selectedBank.id;
         toast.success("Bank updated successfully");
       } else {
-        await backendApi.post("/banks", payload);
+        const created = await backendApi.post("/banks", payload);
+        savedId = created?.id;
         toast.success("Bank created successfully");
+      }
+
+      if (savedId) {
+        const activeDefs = (fieldDefs || []).filter((d) => d.active !== false);
+        await Promise.all(
+          activeDefs.map((d) =>
+            upsertFieldValue("bank", savedId, d.fieldKey, currentFieldValues?.[d.fieldKey] ?? "")
+          )
+        );
       }
       
       // Refresh list
@@ -135,8 +189,8 @@ export default function BanksPage() {
       // Reset form and close modal
       setShowCreateModal(false);
       setSelectedBank(null);
-      setForm({ name: "", branch: "", owner: "", phone: "", website: "", address: "", district: "", taluka: "", pinCode: "", description: "" });
-      setCustomFields({});
+      setForm({ name: "", branch: "", phone: "", website: "", address: "", district: "", taluka: "", pinCode: "", description: "", customFields: {} });
+      setCurrentFieldValues({});
     } catch (err) {
       console.error("Save failed:", err);
       const isNotFound = err?.status === 404 || err?.data?.status === 404;
@@ -189,12 +243,18 @@ export default function BanksPage() {
 
       // Always fetch latest bank from backend
       const freshBank = await backendApi.get(`/banks/${bank.id}`);
+      let valuesMap = {};
+      try {
+        const valsRes = await fetchFieldValues("bank", bank.id);
+        valuesMap = normalizeValues(valsRes);
+      } catch (_e) {
+        valuesMap = {};
+      }
 
       setSelectedBank(freshBank);
       setForm({
-        name: freshBank.bankName || "",
+        name: freshBank.name || "",
         branch: freshBank.branchName || "",
-        owner: freshBank.owner || "",
         phone: freshBank.phone || "",
         website: freshBank.website || "",
         address: freshBank.address || "",
@@ -204,7 +264,7 @@ export default function BanksPage() {
         description: freshBank.description || "",
       });
 
-      setCustomFields(freshBank.customFields || {});
+      setCurrentFieldValues(valuesMap);
       setShowCreateModal(true);
     } catch (err) {
       console.error("Failed to open edit:", err);
@@ -229,7 +289,7 @@ export default function BanksPage() {
     <DashboardLayout
       header={{
         project: 'Banks',
-        user: { name: 'Admin User', role: 'Administrator' },
+        user: getLoggedInUser(),
         notifications: [],
       }}
     >
@@ -277,9 +337,6 @@ export default function BanksPage() {
                     Branch
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                    Owner
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
                     Phone
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
@@ -287,6 +344,12 @@ export default function BanksPage() {
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
                     Address
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                    Created
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                    Updated
                   </th>
                   {/* Dynamic custom fields columns */}
                   {dynamicColumns.map(col => (
@@ -312,9 +375,6 @@ export default function BanksPage() {
                       {bank.branchName || bank.branch || "-"}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
-                      {bank.owner || "-"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
                       {bank.phone || "-"}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
@@ -332,10 +392,18 @@ export default function BanksPage() {
                         <span className="truncate max-w-xs">{bank.address || "-"}</span>
                       </div>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
+                      {bank.updatedAt 
+                        ? new Date(bank.updatedAt).toLocaleDateString()
+                        : "-"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
+                      {bank.createdByName || "-"}
+                    </td>
                     {/* Dynamic custom fields data */}
                     {dynamicColumns.map(col => (
                       <td key={col} className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
-                        {bank.customFields?.[col] || "-"}
+                        {bankFieldValuesById?.[bank.id]?.[col] || "-"}
                       </td>
                     ))}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
@@ -434,18 +502,6 @@ export default function BanksPage() {
                   <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Owner Name
-                      </label>
-                      <input
-                        type="text"
-                        value={form.owner}
-                        onChange={(e) => setForm({ ...form, owner: e.target.value })}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-                        placeholder="Enter owner name"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
                         Phone Number
                       </label>
                       <input
@@ -536,24 +592,12 @@ export default function BanksPage() {
                     />
                   </div>
 
-                  <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
-                        <Settings className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium text-slate-900">Custom Fields</div>
-                        <div className="text-xs text-slate-500">Add custom fields to this bank</div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowCustomFieldsModal(true)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                    >
-                      Configure
-                    </button>
-                  </div>
+                  <DynamicFieldsSection
+                    entity="bank"
+                    entityId={selectedBank?.id}
+                    values={form.customFields}
+                    onChange={(values) => setForm({ ...form, customFields: values })}
+                  />
                 </div>
               </div>
 
@@ -598,7 +642,6 @@ export default function BanksPage() {
             <div className="space-y-3">
               <div><strong>Name:</strong> {selectedBank.bankName || selectedBank.name}</div>
               <div><strong>Branch:</strong> {selectedBank.branchName || selectedBank.branch}</div>
-              <div><strong>Owner:</strong> {selectedBank.owner}</div>
               <div><strong>Phone:</strong> {selectedBank.phone}</div>
               <div><strong>Website:</strong> {selectedBank.website ? <a href={selectedBank.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">{selectedBank.website}</a> : "-"}</div>
               <div><strong>Address:</strong> {selectedBank.address}</div>
@@ -607,16 +650,6 @@ export default function BanksPage() {
         </div>
       )}
 
-      <CustomFieldsModal
-        isOpen={showCustomFieldsModal}
-        onClose={() => setShowCustomFieldsModal(false)}
-        entityType="Bank"
-        initialFields={customFields}
-        onSave={(fields) => {
-          setCustomFields(fields);
-          setShowCustomFieldsModal(false);
-        }}
-      />
       </div>
     </DashboardLayout>
   );

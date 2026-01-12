@@ -4,8 +4,9 @@ import { useState, useEffect } from "react";
 import { Search, Edit2, Trash2, Eye, Settings, X, Plus, Calendar, DollarSign, Building, User, Phone, Mail, MapPin } from "lucide-react";
 import { backendApi } from "@/services/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import CustomFieldsModal from "@/components/CustomFieldsModal";
+import DynamicFieldsSection from "@/components/DynamicFieldsSection";
 import { toast } from "react-toastify";
+import { getLoggedInUser } from "@/utils/auth";
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState([]);
@@ -15,7 +16,6 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [showCreateDrawer, setShowCreateDrawer] = useState(false);
   const [showDetailsDrawer, setShowDetailsDrawer] = useState(false);
-  const [showCustomFieldsModal, setShowCustomFieldsModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [dynamicColumns, setDynamicColumns] = useState([]);
   
@@ -137,30 +137,34 @@ export default function CustomersPage() {
   // ✅ Edit: always fetch fresh data
   const openEdit = async (customer) => {
     try {
-      if (!customer?.id) {
-        toast.error("Invalid customer selected");
-        return;
-      }
+      const [freshCustomer, customerDeal, fieldValues] = await Promise.all([
+        backendApi.get(`/clients/${customer.id}`),
+        backendApi.get(`/deals?clientId=${customer.id}`).catch(() => ({ data: [] })),
+        fetch(`http://localhost:8080/api/field-values?entity=client&entityId=${customer.id}`).then(r => r.json()).catch(() => [])
+      ]);
 
-      const freshCustomer = await backendApi.get(`/clients/${customer.id}`);
+      // Convert field values to object
+      const customFields = {};
+      fieldValues.forEach(field => {
+        customFields[field.fieldKey] = field.value;
+      });
+
+      const deal = Array.isArray(customerDeal.data) ? customerDeal.data[0] : customerDeal;
       
-      // Find associated deal
-      const customerDeal = deals.find(deal => deal.clientId === customer.id);
-
       setSelectedCustomer(freshCustomer);
       setForm({
         name: freshCustomer.name || "",
         email: freshCustomer.email || "",
         phone: freshCustomer.contactPhone || "",
         address: freshCustomer.address || "",
-        bankId: customerDeal?.bankId || "",
-        branchName: customerDeal?.branchName || "",
+        bankId: deal?.bankId || "",
+        branchName: deal?.branchName || "",
         contactName: freshCustomer.contactName || "",
-        stage: customerDeal?.stage || "LEAD",
-        valueAmount: customerDeal?.valueAmount || "",
-        closingDate: customerDeal?.closingDate || "",
-        description: customerDeal?.description || "",
-        customFields: freshCustomer.customFields || {}
+        stage: deal?.stage || "LEAD",
+        valueAmount: deal?.valueAmount || "",
+        closingDate: deal?.closingDate || "",
+        description: deal?.description || "",
+        customFields: customFields
       });
       setShowCreateDrawer(true);
     } catch (err) {
@@ -187,13 +191,19 @@ export default function CustomersPage() {
         return;
       }
 
+      // Get logged in user for owner fields
+      const user = getLoggedInUser();
+      
       // Create/Update Customer
       const customerPayload = {
         name: form.name?.trim(),
         email: form.email?.trim() || null,
         contactPhone: form.phone?.trim() || null,
         address: form.address || "",
-        customFields: form.customFields || {},
+        customFields: JSON.stringify(form.customFields || {}),
+        // Include owner fields for backend auto-population
+        ownerId: user?.id ?? null,
+        createdBy: user?.id ?? null,
       };
 
       let savedCustomer;
@@ -205,12 +215,22 @@ export default function CustomersPage() {
         toast.success("Customer created successfully");
       }
 
+      // Save custom field values
+      if (form.customFields && Object.keys(form.customFields).length > 0) {
+        await fetch(`http://localhost:8080/api/field-values/batch?entity=client&entityId=${savedCustomer.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form.customFields)
+        });
+      }
+
       // Create/Update associated Deal
       const dealPayload = {
-        clientId: savedCustomer.id,
         name: form.name?.trim(),
+        clientId: savedCustomer.id,
         bankId: form.bankId || null,
         branchName: form.branchName || "",
+        relatedBankName: banks.find(b => b.id === form.bankId)?.name || "",
         contactName: form.contactName || "",
         stage: form.stage || "LEAD",
         valueAmount: Number(form.valueAmount) || 0,
@@ -233,6 +253,22 @@ export default function CustomersPage() {
       // Refresh data
       await fetchCustomers();
       await fetchDeals();
+      
+      // Reset form
+      setForm({
+        name: "",
+        email: "",
+        phone: "",
+        address: "",
+        bankId: "",
+        branchName: "",
+        contactName: "",
+        stage: "LEAD",
+        valueAmount: "",
+        closingDate: "",
+        description: "",
+        customFields: {}
+      });
       
       setShowCreateDrawer(false);
       setSelectedCustomer(null);
@@ -362,6 +398,9 @@ export default function CustomersPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
                       Amount
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                      Owner
+                    </th>
                     
                     {dynamicColumns.map((col) => (
                       <th
@@ -396,17 +435,31 @@ export default function CustomersPage() {
                         </td>
 
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
-                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                            customerDeal?.stage === 'WON' ? 'bg-green-100 text-green-800' :
-                            customerDeal?.stage === 'LOST' ? 'bg-red-100 text-red-800' :
-                            'bg-blue-100 text-blue-800'
-                          }`}>
-                            {customerDeal?.stage || 'LEAD'}
-                          </span>
+                          <div className="group relative">
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                              customerDeal?.stage === 'WON' ? 'bg-green-100 text-green-800' :
+                              customerDeal?.stage === 'LOST' ? 'bg-red-100 text-red-800' :
+                              'bg-blue-100 text-blue-800'
+                            }`}>
+                              {customerDeal?.stage || 'LEAD'}
+                            </span>
+                            <div className="absolute bottom-full left-1/2 transform translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 z-10 pointer-events-none">
+                              <div className="font-medium mb-1">Deal Details</div>
+                              <div><strong>Stage:</strong> {customerDeal?.stage || 'No deal'}</div>
+                              <div><strong>Amount:</strong> ${customerDeal?.valueAmount || 0}</div>
+                              {customerDeal?.closingDate && (
+                                <div><strong>Closing Date:</strong> {new Date(customerDeal.closingDate).toLocaleDateString()}</div>
+                              )}
+                            </div>
+                          </div>
                         </td>
 
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
                           ${customerDeal?.valueAmount || 0}
+                        </td>
+
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
+                          {customer.ownerName || customer.createdByName || "Admin"}
                         </td>
 
                         {dynamicColumns.map((col) => (
@@ -588,7 +641,25 @@ export default function CustomersPage() {
                           </label>
                           <select
                             value={form.bankId}
-                            onChange={(e) => setForm({ ...form, bankId: e.target.value })}
+                            onChange={async (e) => {
+                              const bankId = e.target.value;
+                              setForm({ ...form, bankId, branchName: "" });
+                              
+                              if (bankId) {
+                                try {
+                                  const response = await fetch(`http://localhost:8080/api/banks/${bankId}`);
+                                  if (response.ok) {
+                                    const bank = await response.json();
+                                    setForm(prev => ({ 
+                                      ...prev, 
+                                      branchName: bank.branchName || bank.branch_name || "" 
+                                    }));
+                                  }
+                                } catch (error) {
+                                  console.error("Failed to fetch bank details:", error);
+                                }
+                              }
+                            }}
                             className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                           >
                             <option value="">Select bank</option>
@@ -674,29 +745,12 @@ export default function CustomersPage() {
                     </div>
 
                     {/* Custom Fields */}
-                    <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
-                          <Settings className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-slate-900">
-                            Custom Fields
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            Add custom fields to this customer
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setShowCustomFieldsModal(true)}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                      >
-                        Configure
-                      </button>
-                    </div>
+                    <DynamicFieldsSection
+                      entity="client"
+                      entityId={selectedCustomer?.id}
+                      values={form.customFields}
+                      onChange={(values) => setForm({ ...form, customFields: values })}
+                    />
                   </div>
                 </div>
 
@@ -850,18 +904,6 @@ export default function CustomersPage() {
             </div>
           </>
         )}
-
-        {/* CUSTOM FIELDS MODAL */}
-        <CustomFieldsModal
-          isOpen={showCustomFieldsModal}
-          onClose={() => setShowCustomFieldsModal(false)}
-          entityType="Customer"
-          initialFields={form.customFields}
-          onSave={(fields) => {
-            setForm({ ...form, customFields: fields });
-            setShowCustomFieldsModal(false);
-          }}
-        />
       </div>
     </DashboardLayout>
   );

@@ -4,12 +4,27 @@ import { useState, useEffect } from "react";
 import { Search, Edit2, Trash2, Eye, Settings, X } from "lucide-react";
 import { backendApi } from "@/services/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import CustomFieldsModal from "@/components/CustomFieldsModal";
+import DynamicFieldsSection from "@/components/DynamicFieldsSection";
+import CreatableCategorySelect from "@/components/CreatableCategorySelect";
+import { getLoggedInUser } from "@/utils/auth";
+import {
+  fetchFieldDefinitions,
+  fetchFieldValues,
+  normalizeDefinitions,
+  normalizeValues,
+  upsertFieldValue,
+} from "@/services/crmFields";
 import { toast } from "react-toastify";
 
 export default function ProductsPage() {
+  const [userData, setUserData] = useState(null);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+
+  useEffect(() => {
+    const user = getLoggedInUser();
+    setUserData(user);
+  }, []);
 
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -20,18 +35,19 @@ export default function ProductsPage() {
   const [selectedProduct, setSelectedProduct] = useState(null);
 
   const [form, setForm] = useState({
-    productName: "",
-    productCode: "",
-    productCategory: "",
-    unitPrice: "",
+    name: "",
+    code: "",
     description: "",
     categoryId: "",
+    price: "",
     active: true,
+    customFields: {},
   });
 
-  const [customFields, setCustomFields] = useState({});
-  const [showCustomFieldsModal, setShowCustomFieldsModal] = useState(false);
+  const [fieldDefs, setFieldDefs] = useState([]);
   const [dynamicColumns, setDynamicColumns] = useState([]);
+  const [productFieldValuesById, setProductFieldValuesById] = useState({});
+  const [currentFieldValues, setCurrentFieldValues] = useState({});
 
   // ✅ Normalize backend response (array or Page response)
   const normalizeList = (res) => {
@@ -51,6 +67,32 @@ export default function ProductsPage() {
     return null;
   };
 
+  const getLoggedInUser = () => {
+    if (typeof window === "undefined") return { name: "Admin", role: "Administrator" };
+    try {
+      const raw = localStorage.getItem("user_data");
+      const obj = raw ? JSON.parse(raw) : null;
+      const name = obj?.name || obj?.fullName || obj?.username || obj?.email || "Admin";
+      const role = obj?.role || obj?.designation || "Administrator";
+      return { name, role };
+    } catch {
+      return { name: "Admin", role: "Administrator" };
+    }
+  };
+
+  const fetchProductFieldDefinitions = async () => {
+    try {
+      const defsRes = await fetchFieldDefinitions("product");
+      const defs = normalizeDefinitions(defsRes);
+      setFieldDefs(defs);
+      setDynamicColumns(defs.filter((d) => d.active !== false).map((d) => d.fieldKey));
+    } catch (err) {
+      console.error("Failed to fetch product field definitions", err);
+      setFieldDefs([]);
+      setDynamicColumns([]);
+    }
+  };
+
   const fetchProducts = async () => {
     setLoading(true);
     try {
@@ -67,14 +109,21 @@ export default function ProductsPage() {
         setShowCreateModal(false);
       }
 
-      // dynamic columns from customFields
-      const keys = new Set();
-      productsData.forEach((p) => {
-        if (p?.customFields && typeof p.customFields === "object") {
-          Object.keys(p.customFields).forEach((k) => keys.add(k));
-        }
-      });
-      setDynamicColumns([...keys]);
+      // dynamic columns from definitions
+      setDynamicColumns((fieldDefs || []).filter((d) => d.active !== false).map((d) => d.fieldKey));
+
+      // values map for list table
+      const entries = await Promise.all(
+        (productsData || []).map(async (p) => {
+          try {
+            const vals = await fetchFieldValues("product", p.id);
+            return [p.id, normalizeValues(vals)];
+          } catch (_e) {
+            return [p.id, {}];
+          }
+        })
+      );
+      setProductFieldValuesById(Object.fromEntries(entries));
     } catch (err) {
       console.error("Failed to fetch products:", err);
       toast.error("Failed to load products");
@@ -94,6 +143,7 @@ export default function ProductsPage() {
   };
 
   useEffect(() => {
+    fetchProductFieldDefinitions();
     fetchProducts();
     fetchCategories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,8 +157,8 @@ export default function ProductsPage() {
   };
 
   const filtered = products.filter((p) => {
-    const name = (p.productName || p.name || "").toLowerCase();
-    const sku = (p.productCode || p.sku || "").toLowerCase();
+    const name = (p.name || "").toLowerCase();
+    const sku = (p.code || p.sku || "").toLowerCase();
     const q = search.toLowerCase();
     return name.includes(q) || sku.includes(q);
   });
@@ -117,46 +167,56 @@ export default function ProductsPage() {
   const openCreate = () => {
     setSelectedProduct(null);
     setForm({
-      productName: "",
-      productCode: "",
-      productCategory: "",
-      unitPrice: "",
+      name: "",
+      code: "",
       description: "",
       categoryId: "",
+      price: "",
       active: true,
     });
-    setCustomFields({});
+    setCurrentFieldValues({});
     setShowCreateModal(true);
   };
 
   // ✅ Edit: always fetch fresh data
   const openEdit = async (product) => {
     try {
-      if (!product?.id) {
-        toast.error("Invalid product selected");
-        return;
-      }
+      const [freshProduct, fieldValues] = await Promise.all([
+        backendApi.get(`/products/${product.id}`),
+        fetch(`http://localhost:8080/api/field-values?entity=product&entityId=${product.id}`).then(r => r.json()).catch(() => [])
+      ]);
 
-      const freshProduct = await backendApi.get(`/products/${product.id}`);
+      // Convert field values to object
+      const customFields = {};
+      fieldValues.forEach(field => {
+        customFields[field.fieldKey] = field.value;
+      });
+
+      const valuesMap = {};
+      if (Array.isArray(freshProduct.fieldValues)) {
+        freshProduct.fieldValues.forEach((fv) => {
+          valuesMap[fv.fieldKey] = fv.value;
+        });
+      }
 
       setSelectedProduct(freshProduct);
       setForm({
-        productName: freshProduct.productName || "",
-        productCode: freshProduct.productCode || "",
-        productCategory: freshProduct.productCategory || "",
-        unitPrice:
-          freshProduct.unitPrice !== null && freshProduct.unitPrice !== undefined
-            ? String(freshProduct.unitPrice)
-            : "",
+        name: freshProduct.name || "",
+        code: freshProduct.code || "",
         description: freshProduct.description || "",
         categoryId: freshProduct.categoryId || "",
+        price:
+          freshProduct.price !== null && freshProduct.price !== undefined
+            ? String(freshProduct.price)
+            : "",
         active:
           freshProduct.active !== undefined && freshProduct.active !== null
             ? freshProduct.active
             : true,
+        customFields: customFields,
       });
 
-      setCustomFields(freshProduct.customFields || {});
+      setCurrentFieldValues(valuesMap);
       setShowCreateModal(true);
     } catch (err) {
       console.error("Failed to open edit:", err);
@@ -177,42 +237,61 @@ export default function ProductsPage() {
 
   const handleCreateOrUpdate = async () => {
     try {
-      if (!form.productName?.trim()) {
+      if (!form.name?.trim()) {
         toast.error("Product Name is required");
         return;
       }
 
       const payload = {
-        productName: form.productName?.trim(),
-        productCode: form.productCode?.trim() || null,
-        productCategory: form.productCategory?.trim() || null,
-        unitPrice: Number(form.unitPrice) || 0,
+        name: form.name?.trim(),
+        code: form.code?.trim() || null,
         description: form.description || "",
         categoryId: form.categoryId || null,
+        price: Number(form.price) || 0,
         active: true,
-        customFields: customFields || {},
+        customFields: JSON.stringify(form.customFields || {}),
       };
 
+      let savedId = selectedProduct?.id;
       if (selectedProduct?.id) {
         await backendApi.put(`/products/${selectedProduct.id}`, payload);
         toast.success("Product updated successfully");
       } else {
-        await backendApi.post("/products", payload);
+        const created = await backendApi.post("/products", payload);
+        savedId = created?.id;
         toast.success("Product created successfully");
+      }
+
+      // Save custom field values
+      if (form.customFields && Object.keys(form.customFields).length > 0) {
+        await fetch(`http://localhost:8080/api/field-values/batch?entity=product&entityId=${savedId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form.customFields)
+        });
+      }
+
+      if (savedId) {
+        const activeDefs = (fieldDefs || []).filter((d) => d.active !== false);
+        await Promise.all(
+          activeDefs.map((d) =>
+            upsertFieldValue("product", savedId, d.fieldKey, currentFieldValues?.[d.fieldKey] ?? "")
+          )
+        );
       }
 
       await fetchProducts();
       setShowCreateModal(false);
       setSelectedProduct(null);
-      setCustomFields({});
+      setCurrentFieldValues({});
       setForm({
-        productName: "",
-        productCode: "",
-        productCategory: "",
-        unitPrice: "",
+        name: "",
+        code: "",
         description: "",
         categoryId: "",
+        price: "",
         active: true,
+        customFields: {},
       });
     } catch (err) {
       console.error("Save failed:", err);
@@ -275,7 +354,7 @@ export default function ProductsPage() {
     <DashboardLayout
       header={{
         project: "Products",
-        user: { name: "Admin User", role: "Administrator" },
+        user: getLoggedInUser(),
         notifications: [],
       }}
     >
@@ -284,13 +363,13 @@ export default function ProductsPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-lg font-semibold text-slate-900">Products</div>
-            <p className="text-sm text-slate-500">All products list</p>
+            <p className="text-sm text-slate-500">Manage your product catalog</p>
           </div>
-
+          
           <div className="flex items-center gap-3">
             <button
               onClick={openCreate}
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
             >
               <span className="text-lg leading-none">+</span>
               <span>Add Product</span>
@@ -332,6 +411,17 @@ export default function ProductsPage() {
                       Price
                     </th>
 
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                      Created
+                    </th>
+
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                      Updated
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                      Owner
+                    </th>
+
                     {dynamicColumns.map((col) => (
                       <th
                         key={col}
@@ -351,19 +441,29 @@ export default function ProductsPage() {
                   {filtered.map((product) => (
                     <tr key={product.id} className="hover:bg-slate-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">
-                        {product.productName || product.name}
+                        {product.name}
                       </td>
 
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
-                        {product.productCode || product.sku || "-"}
+                        {product.code || product.sku || "-"}
                       </td>
 
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
-                        {product.productCategory || "-"}
+                        {categories.find(c => c.id === product.categoryId)?.name || "-"}
                       </td>
 
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
-                        ₹{product.unitPrice ?? 0}
+                        ₹{product.price ?? 0}
+                      </td>
+
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
+                        {product.updatedAt 
+                          ? new Date(product.updatedAt).toLocaleDateString()
+                          : "-"}
+                      </td>
+
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
+                        {product.ownerName || product.createdByName || "Admin"}
                       </td>
 
                       {dynamicColumns.map((col) => (
@@ -371,7 +471,7 @@ export default function ProductsPage() {
                           key={col}
                           className="px-6 py-4 whitespace-nowrap text-sm text-slate-700"
                         >
-                          {product.customFields?.[col] || "-"}
+                          {productFieldValuesById?.[product.id]?.[col] || "-"}
                         </td>
                       ))}
 
@@ -466,9 +566,9 @@ export default function ProductsPage() {
                         </label>
                         <input
                           type="text"
-                          value={form.productName}
+                          value={form.name}
                           onChange={(e) =>
-                            setForm({ ...form, productName: e.target.value })
+                            setForm({ ...form, name: e.target.value })
                           }
                           className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
                           placeholder="Enter product name"
@@ -481,9 +581,9 @@ export default function ProductsPage() {
                         </label>
                         <input
                           type="text"
-                          value={form.productCode}
+                          value={form.code}
                           onChange={(e) =>
-                            setForm({ ...form, productCode: e.target.value })
+                            setForm({ ...form, code: e.target.value })
                           }
                           className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
                           placeholder="Enter SKU or product code"
@@ -511,20 +611,13 @@ export default function ProductsPage() {
                         <label className="block text-sm font-medium text-slate-700 mb-2">
                           Category
                         </label>
-                        <select
+                        <CreatableCategorySelect
                           value={form.categoryId}
-                          onChange={(e) =>
-                            setForm({ ...form, categoryId: e.target.value })
+                          onChange={(value) =>
+                            setForm({ ...form, categoryId: value })
                           }
-                          className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-                        >
-                          <option value="">Select category</option>
-                          {categories.map((cat) => (
-                            <option key={cat.id} value={cat.id}>
-                              {cat.name || cat.categoryName}
-                            </option>
-                          ))}
-                        </select>
+                          className="w-full"
+                        />
                       </div>
 
                       <div>
@@ -535,9 +628,9 @@ export default function ProductsPage() {
                           type="number"
                           step="0.01"
                           min="0"
-                          value={form.unitPrice}
+                          value={form.price}
                           onChange={(e) =>
-                            setForm({ ...form, unitPrice: e.target.value })
+                            setForm({ ...form, price: e.target.value })
                           }
                           className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
                           placeholder="0.00"
@@ -545,32 +638,70 @@ export default function ProductsPage() {
                       </div>
                     </div>
 
-                    {/* Custom Fields */}
-                    <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
-                          <Settings className="h-5 w-5" />
+                    {/* Audit Information */}
+                    <div className="border-t border-slate-200/80 pt-6">
+                      <h4 className="text-base font-semibold text-slate-900 mb-4">Audit Information</h4>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Owner
+                          </label>
+                          <input
+                            type="text"
+                            value={userData?.name || "Admin User"}
+                            readOnly
+                            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm text-slate-900"
+                          />
                         </div>
                         <div>
-                          <div className="text-sm font-medium text-slate-900">
-                            Custom Fields
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            Add custom fields to this product
-                          </div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Created Date
+                          </label>
+                          <input
+                            type="text"
+                            value={selectedProduct?.createdAt 
+                              ? new Date(selectedProduct.createdAt).toLocaleString() 
+                              : new Date().toLocaleString()}
+                            readOnly
+                            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Created By
+                          </label>
+                          <input
+                            type="text"
+                            value={selectedProduct?.createdByName || userData?.name || "Admin User"}
+                            readOnly
+                            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Last Updated
+                          </label>
+                          <input
+                            type="text"
+                            value={selectedProduct?.updatedAt 
+                              ? new Date(selectedProduct.updatedAt).toLocaleString() 
+                              : "-"}
+                            readOnly
+                            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm text-slate-900"
+                          />
                         </div>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setShowCustomFieldsModal(true)}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                      >
-                        Configure
-                      </button>
                     </div>
                   </div>
                 </div>
+
+                {/* Custom Fields */}
+                <DynamicFieldsSection
+                  entity="product"
+                  entityId={selectedProduct?.id}
+                  values={form.customFields}
+                  onChange={(values) => setForm({ ...form, customFields: values })}
+                />
 
                 {/* FOOTER */}
                 <div className="border-t border-slate-200/80 px-6 py-4">
@@ -619,40 +750,61 @@ export default function ProductsPage() {
 
               <div className="space-y-3">
                 <div>
-                  <strong>Name:</strong>{" "}
-                  {selectedProduct.productName || selectedProduct.name}
+                  <strong>Name:</strong> {selectedProduct.name}
                 </div>
                 <div>
-                  <strong>SKU:</strong>{" "}
-                  {selectedProduct.productCode || selectedProduct.sku}
+                  <strong>SKU:</strong> {selectedProduct.code || "-"}
                 </div>
                 <div>
-                  <strong>Description:</strong> {selectedProduct.description}
+                  <strong>Description:</strong> {selectedProduct.description || "-"}
                 </div>
                 <div>
                   <strong>Category:</strong>{" "}
-                  {selectedProduct.productCategory || "-"}
+                  {categories.find(c => c.id === selectedProduct.categoryId)?.name || "-"}
                 </div>
                 <div>
-                  <strong>Price:</strong> ₹
-                  {selectedProduct.unitPrice ?? selectedProduct.price ?? 0}
+                  <strong>Price:</strong> ₹{selectedProduct.price ?? 0}
+                </div>
+                <div>
+                  <strong>Status:</strong>{" "}
+                  <span className={`px-2 py-1 rounded text-xs ${
+                    selectedProduct.active 
+                      ? "bg-green-100 text-green-800" 
+                      : "bg-red-100 text-red-800"
+                  }`}>
+                    {selectedProduct.active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+                
+                {/* Audit Fields */}
+                <div className="pt-3 border-t border-gray-200">
+                  <h4 className="font-medium text-gray-900 mb-2">Audit Information</h4>
+                  <div className="space-y-1 text-sm text-gray-600">
+                    <div>
+                      <strong>Created:</strong>{" "}
+                      {selectedProduct.createdAt 
+                        ? new Date(selectedProduct.createdAt).toLocaleString()
+                        : "-"}
+                    </div>
+                    <div>
+                      <strong>Created By:</strong> {selectedProduct.createdByName || "-"}
+                    </div>
+                    <div>
+                      <strong>Updated:</strong>{" "}
+                      {selectedProduct.updatedAt 
+                        ? new Date(selectedProduct.updatedAt).toLocaleString()
+                        : "-"}
+                    </div>
+                    <div>
+                      <strong>Updated By:</strong> {selectedProduct.updatedByName || "-"}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* CUSTOM FIELDS MODAL */}
-        <CustomFieldsModal
-          isOpen={showCustomFieldsModal}
-          onClose={() => setShowCustomFieldsModal(false)}
-          entityType="Product"
-          initialFields={customFields}
-          onSave={(fields) => {
-            setCustomFields(fields);
-            setShowCustomFieldsModal(false);
-          }}
-        />
       </div>
     </DashboardLayout>
   );

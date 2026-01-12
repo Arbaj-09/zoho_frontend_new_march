@@ -6,6 +6,14 @@ import Link from "next/link";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { backendApi } from "@/services/api";
 import SearchSelectModal from "@/components/common/SearchSelectModal";
+import DynamicFieldsSection from "@/components/dynamic-fields/DynamicFieldsSection";
+import {
+  fetchFieldDefinitions,
+  fetchFieldValues,
+  normalizeDefinitions,
+  normalizeValues,
+  upsertFieldValue,
+} from "@/services/crmFields";
 import {
   Calendar,
   Mail,
@@ -41,6 +49,9 @@ export default function CustomerDetailPage() {
   const [timeline, setTimeline] = useState([]);
   const [deal, setDeal] = useState(null);
   const [dealId, setDealId] = useState(null);
+
+  const [dealFieldDefs, setDealFieldDefs] = useState([]);
+  const [dealFieldValues, setDealFieldValues] = useState({});
   const [bank, setBank] = useState(null);
   const [banks, setBanks] = useState([]);
   const [bankSearch, setBankSearch] = useState("");
@@ -72,6 +83,29 @@ export default function CustomerDetailPage() {
 
   const showSuccess = (msg) => {
     alert(msg);
+  };
+
+  const getLoggedInUser = () => {
+    if (typeof window === "undefined") return { name: "Admin", role: "Administrator" };
+    try {
+      const raw = localStorage.getItem("user_data");
+      const obj = raw ? JSON.parse(raw) : null;
+      const name = obj?.name || obj?.fullName || obj?.username || obj?.email || "Admin";
+      const role = obj?.role || obj?.designation || "Administrator";
+      return { name, role };
+    } catch {
+      return { name: "Admin", role: "Administrator" };
+    }
+  };
+
+  const loadDealFieldDefinitions = async () => {
+    try {
+      const defsRes = await fetchFieldDefinitions("deal");
+      setDealFieldDefs(normalizeDefinitions(defsRes));
+    } catch (e) {
+      console.error("Failed to load deal field definitions", e);
+      setDealFieldDefs([]);
+    }
   };
 
   const adaptTimeline = (items) => {
@@ -174,10 +208,13 @@ export default function CustomerDetailPage() {
     "PHYSICAL_POSSESSION",
   ];
 
-  const isUuidLike = (v) => typeof v === "string" && /^[0-9a-fA-F-]{36}$/.test(v);
+  const toCrmId = (v) => {
+    const n = Number(v);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  };
 
   async function handleDeleteActivity(type, activityId) {
-    if (!isUuidLike(String(dealId))) return;
+    if (!toCrmId(dealId)) return;
     if (!activityId) return;
     try {
       await backendApi.delete(`/deals/${dealId}/activities/${activityId}`);
@@ -235,15 +272,18 @@ export default function CustomerDetailPage() {
 
     async function loadDealCrm() {
       try {
+        // definitions first
+        await loadDealFieldDefinitions();
+
         let resolvedDealId = null;
         try {
           const dealLinkRes = await backendApi.get(`/clients/${customerId}/deal`);
-          resolvedDealId = dealLinkRes?.id || null;
+          resolvedDealId = toCrmId(dealLinkRes?.id);
         } catch (_e) {
           resolvedDealId = null;
         }
 
-        if (!resolvedDealId || !isUuidLike(String(resolvedDealId))) {
+        if (!resolvedDealId) {
           if (isMounted) {
             setDealId(null);
             setDeal(null);
@@ -289,6 +329,13 @@ export default function CustomerDetailPage() {
 
         if (!isMounted) return;
         setDeal(dealRes || null);
+
+        try {
+          const valsRes = await fetchFieldValues("deal", resolvedDealId);
+          if (isMounted) setDealFieldValues(normalizeValues(valsRes));
+        } catch (_e) {
+          if (isMounted) setDealFieldValues({});
+        }
 
         const [timelineSettled, stagesSettled, notesSettled, tasksSettled, eventsSettled, callsSettled, productsSettled] = await Promise.allSettled([
           backendApi.get(`/deals/${resolvedDealId}/timeline`),
@@ -492,7 +539,7 @@ export default function CustomerDetailPage() {
   }
 
   async function handleDeleteDealProduct(dealProductId) {
-    if (!isUuidLike(String(dealId))) return;
+    if (!toCrmId(dealId)) return;
     if (!dealProductId) return;
     try {
       await backendApi.delete(`/deals/${dealId}/products/${dealProductId}`);
@@ -596,7 +643,7 @@ export default function CustomerDetailPage() {
       <DashboardLayout
         header={{
           project: "Customer Details",
-          user: { name: "Admin User", role: "Administrator" },
+          user: getLoggedInUser(),
           notifications: [],
         }}
       >
@@ -612,7 +659,7 @@ export default function CustomerDetailPage() {
   }
 
   async function handleStageChange(newStage) {
-    if (!isUuidLike(String(dealId))) return;
+    if (!toCrmId(dealId)) return;
     try {
       await backendApi.post(`/deals/${dealId}/stages`, { newStage });
       const [timelineRes, stagesRes] = await Promise.all([
@@ -770,44 +817,15 @@ export default function CustomerDetailPage() {
     setBankFormError("");
   }
 
-  function selectBank(bankItem) {
-    setBank(bankItem);
-    closeBankPicker();
-  }
+function selectBank(bankItem) {
+setBank(bankItem);
+closeBankPicker();
+}
 
-  async function ensureDealId() {
-    if (isUuidLike(String(dealId))) return String(dealId);
-
-    try {
-      const link = await backendApi.get(`/clients/${customerId}/deal`);
-      const resolved = link?.id ? String(link.id) : null;
-      if (resolved && isUuidLike(resolved)) {
-        setDealId(resolved);
-        return resolved;
-      }
-    } catch (_e) {
-      // ignore and fall back to create
-    }
-
-    const clientIdNum = Number(customerId);
-    if (!Number.isFinite(clientIdNum)) return null;
-
-    try {
-      const created = await backendApi.post("/deals", {
-        clientId: clientIdNum,
-        name: safeCustomer?.name || "New Deal",
-        branchName: safeCustomer?.branchName || safeCustomer?.address || "",
-        bankId: bank?.id || null,
-      });
-      const createdId = created?.id ? String(created.id) : null;
-      if (createdId && isUuidLike(createdId)) {
-        setDealId(createdId);
-        return createdId;
-      }
-    } catch (err) {
-      showApiError("Failed to create deal", err);
-      return null;
-    }
+async function ensureDealId() {
+    const existingId = toCrmId(dealId);
+    if (existingId) return existingId;
+    
 
     return null;
   }
@@ -976,7 +994,7 @@ export default function CustomerDetailPage() {
   }
 
   async function saveProductFromModal() {
-    if (!isUuidLike(String(dealId))) return;
+    if (!toCrmId(dealId)) return;
     const qty = Number(productForm.quantity) || 0;
     let selectedProductId = productForm.productId;
     if (!selectedProductId && productSearch.trim()) {
@@ -1034,7 +1052,7 @@ export default function CustomerDetailPage() {
   }
 
   async function handleAddNote() {
-    if (!isUuidLike(String(dealId))) return;
+    if (!toCrmId(dealId)) return;
     if (!noteText.trim()) return;
     try {
       await backendApi.post(`/deals/${dealId}/notes`, { title: noteTitle || "Note", text: noteText });
@@ -1057,7 +1075,7 @@ export default function CustomerDetailPage() {
     <DashboardLayout
       header={{
         project: 'Customer Details',
-        user: { name: 'Admin User', role: 'Administrator' },
+        user: getLoggedInUser(),
         notifications: [],
       }}
     >
@@ -1066,20 +1084,15 @@ export default function CustomerDetailPage() {
           <div className="flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/70 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur-sm transition-shadow duration-300 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-                <Link
-                  href="/customers"
+                <button
+                  onClick={navigateToDealsPage}
                   className="inline-flex items-center gap-1 rounded-full bg-slate-100/70 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-200"
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
                   Customers
-                </Link>
+                </button>
                 <span className="text-slate-400">/</span>
-                <span className="truncate text-slate-700">{safeCustomer.name}</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-semibold tracking-tight text-slate-900 lg:text-3xl">
-                  {safeCustomer.name}
-                </h1>
+                <h1 className="text-lg font-bold text-slate-900">{safeCustomer.name}</h1>
                 <span className="inline-flex items-center rounded-full bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 px-4 py-1.5 text-sm font-semibold text-slate-50 shadow-md shadow-indigo-500/30">
                   <span className="mr-1.5 text-[10px] uppercase tracking-[0.18em] text-slate-100/80">Case Value</span>
                   {formatCurrency(grandTotal)}
@@ -1234,6 +1247,15 @@ export default function CustomerDetailPage() {
                       </div>
                     )}
                   </button>
+                </div>
+
+                <div className="mb-5">
+                  <DynamicFieldsSection
+                    title="Deal Custom Fields"
+                    definitions={dealFieldDefs}
+                    values={dealFieldValues}
+                    onChange={(k, v) => setDealFieldValues((prev) => ({ ...prev, [k]: v }))}
+                  />
                 </div>
                 <div className="mb-4 space-y-2">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
