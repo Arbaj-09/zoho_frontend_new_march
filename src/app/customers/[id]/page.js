@@ -24,6 +24,7 @@ import {
   XCircle,
   PauseCircle,
   Plus,
+  Search,
   Eye,
   Download,
   Upload,
@@ -57,11 +58,20 @@ export default function CustomerDetailPage() {
   const [bankSearch, setBankSearch] = useState("");
   const [showBankPicker, setShowBankPicker] = useState(false);
   const [bankFormError, setBankFormError] = useState("");
+  const [showCustomerEditModal, setShowCustomerEditModal] = useState(false);
+  const [customerEditForm, setCustomerEditForm] = useState({});
 
   const [notes, setNotes] = useState([]);
   const [noteText, setNoteText] = useState("");
   const [noteTitle, setNoteTitle] = useState("");
   const [noteFile, setNoteFile] = useState(null);
+
+  const stageChangeInFlight = useRef(false);
+  const productSaveInFlight = useRef(false);
+  const noteSaveInFlight = useRef(false);
+  const deleteActivityInFlight = useRef(false);
+  const deleteDealProductInFlight = useRef(false);
+  const bankSaveInFlight = useRef(false);
 
   const [activitiesTab, setActivitiesTab] = useState("tasks");
   const [tasks, setTasks] = useState([]);
@@ -170,15 +180,16 @@ export default function CustomerDetailPage() {
   const adaptDealProducts = (items) => {
     const list = Array.isArray(items?.content) ? items.content : Array.isArray(items) ? items : [];
     return list.map((ln) => {
-      const product = ln.product || {};
-      const price = Number(ln.price ?? ln.unitPrice ?? product.price ?? 0) || 0;
+      const price = Number(ln.price ?? ln.unitPrice ?? 0) || 0;
       const qty = Number(ln.qty ?? ln.quantity ?? 0) || 0;
       const discount = Number(ln.discount ?? ln.discountAmount ?? 0) || 0;
       const tax = Number(ln.tax ?? ln.taxAmount ?? 0) || 0;
       return {
         id: ln.id,
-        name: ln.name || product.name || "",
-        code: ln.code || product.code || "",
+        dealProductId: ln.id,
+        productId: ln.productId ?? null,
+        name: ln.productName || ln.name || "",
+        code: ln.code || "",
         price,
         qty,
         discount,
@@ -216,7 +227,9 @@ export default function CustomerDetailPage() {
   async function handleDeleteActivity(type, activityId) {
     if (!toCrmId(dealId)) return;
     if (!activityId) return;
+    if (deleteActivityInFlight.current) return;
     try {
+      deleteActivityInFlight.current = true;
       await backendApi.delete(`/deals/${dealId}/activities/${activityId}`);
       const [tasksRes, eventsRes, callsRes, timelineRes] = await Promise.all([
         backendApi.get(`/deals/${dealId}/activities?type=TASK`),
@@ -232,6 +245,8 @@ export default function CustomerDetailPage() {
     } catch (err) {
       console.error("Delete activity failed", err);
       showApiError("Failed to delete activity", err);
+    } finally {
+      deleteActivityInFlight.current = false;
     }
   }
 
@@ -539,14 +554,17 @@ export default function CustomerDetailPage() {
   }
 
   async function handleDeleteDealProduct(dealProductId) {
-    if (!toCrmId(dealId)) return;
+    const crmDealId = toCrmId(dealId);
+    if (!crmDealId) return;
     if (!dealProductId) return;
+    if (deleteDealProductInFlight.current) return;
     try {
-      await backendApi.delete(`/deals/${dealId}/products/${dealProductId}`);
+      deleteDealProductInFlight.current = true;
+      await backendApi.delete(`/deals/${crmDealId}/products/${dealProductId}`);
       const [productsRes, dealRes, timelineRes] = await Promise.all([
-        backendApi.get(`/deals/${dealId}/products`),
-        backendApi.get(`/deals/${dealId}`),
-        backendApi.get(`/deals/${dealId}/timeline`),
+        backendApi.get(`/deals/${crmDealId}/products`),
+        backendApi.get(`/deals/${crmDealId}`),
+        backendApi.get(`/deals/${crmDealId}/timeline`),
       ]);
       setProducts(adaptDealProducts(productsRes));
       setDeal(dealRes || null);
@@ -554,6 +572,8 @@ export default function CustomerDetailPage() {
     } catch (err) {
       console.error("Delete product failed", err);
       showApiError("Failed to delete product", err);
+    } finally {
+      deleteDealProductInFlight.current = false;
     }
   }
 
@@ -660,7 +680,9 @@ export default function CustomerDetailPage() {
 
   async function handleStageChange(newStage) {
     if (!toCrmId(dealId)) return;
+    if (stageChangeInFlight.current) return;
     try {
+      stageChangeInFlight.current = true;
       await backendApi.post(`/deals/${dealId}/stages`, { newStage });
       const [timelineRes, stagesRes] = await Promise.all([
         backendApi.get(`/deals/${dealId}/timeline`),
@@ -682,6 +704,8 @@ export default function CustomerDetailPage() {
     } catch (err) {
       console.error("Stage change failed", err);
       showApiError("Failed to change stage", err);
+    } finally {
+      stageChangeInFlight.current = false;
     }
   }
 
@@ -817,18 +841,107 @@ export default function CustomerDetailPage() {
     setBankFormError("");
   }
 
-function selectBank(bankItem) {
-setBank(bankItem);
-closeBankPicker();
-}
+  async function selectBank(bankItem) {
+    setBank(bankItem);
+    closeBankPicker();
+
+    const crmDealId = toCrmId(dealId);
+    if (!crmDealId || !bankItem?.id) return;
+    if (bankSaveInFlight.current) return;
+
+    try {
+      bankSaveInFlight.current = true;
+
+      // Persist bank selection on the deal so it is visible after refresh.
+      const payload = {
+        name: deal?.name || "",
+        clientId: deal?.clientId ?? null,
+        bankId: Number(bankItem.id),
+        relatedBankName: bankItem?.name || deal?.relatedBankName || "",
+        branchName: deal?.branchName || null,
+        description: deal?.description || "",
+        valueAmount: deal?.valueAmount ?? 0,
+        requiredAmount: deal?.requiredAmount ?? 0,
+        outstandingAmount: deal?.outstandingAmount ?? 0,
+        closingDate: deal?.closingDate || null,
+        stage: deal?.stage || "LEAD",
+        active: deal?.active ?? true,
+      };
+
+      await backendApi.put(`/deals/${crmDealId}`, payload);
+      const dealRes = await backendApi.get(`/deals/${crmDealId}`);
+      setDeal(dealRes || null);
+
+      try {
+        const bankRes = await backendApi.get(`/banks/${Number(bankItem.id)}`);
+        setBank(bankRes || bankItem);
+      } catch (_e) {
+        setBank(bankItem);
+      }
+    } catch (err) {
+      console.error("Save bank selection failed", err);
+      showApiError("Failed to save bank", err);
+    } finally {
+      bankSaveInFlight.current = false;
+    }
+  }
 
 async function ensureDealId() {
     const existingId = toCrmId(dealId);
     if (existingId) return existingId;
     
-
-    return null;
+    // Don't auto-create deal, just return existing ID
+    return existingId;
   }
+
+  // Add navigation function for customer name click
+  const navigateToDealsPage = () => {
+    window.location.href = `/deals/page.js?clientId=${customerId}`;
+  };
+
+  // Add customer edit function
+  const openCustomerEdit = () => {
+    setCustomerEditForm({
+      id: customer?.id,
+      name: customer?.name || "",
+      email: customer?.email || "",
+      phone: customer?.contactPhone || "",
+      address: customer?.address || "",
+      bankId: bank?.id || "",
+      contactName: customer?.contactName || "",
+    });
+    setShowCustomerEditModal(true);
+  };
+
+  // Add customer update function
+  const handleCustomerUpdate = async () => {
+    try {
+      const payload = {
+        name: customerEditForm.name,
+        email: customerEditForm.email,
+        contactPhone: customerEditForm.phone,
+        address: customerEditForm.address,
+        contactName: customerEditForm.contactName,
+      };
+
+      await backendApi.put(`/clients/${customerEditForm.id}`, payload);
+      
+      // Update local state
+      setCustomer(prev => ({ ...prev, ...payload }));
+      
+      // Update bank if changed
+      if (customerEditForm.bankId !== bank?.id) {
+        const selectedBank = banks.find(b => b.id === customerEditForm.bankId);
+        setBank(selectedBank);
+      }
+      
+      setShowCustomerEditModal(false);
+      showSuccess("Customer updated successfully");
+    } catch (err) {
+      console.error("Failed to update customer:", err);
+      showApiError("Failed to update customer", err);
+    }
+  };
 
   async function saveTask() {
     const ensuredDealId = await ensureDealId();
@@ -995,6 +1108,7 @@ async function ensureDealId() {
 
   async function saveProductFromModal() {
     if (!toCrmId(dealId)) return;
+    if (productSaveInFlight.current) return;
     const qty = Number(productForm.quantity) || 0;
     let selectedProductId = productForm.productId;
     if (!selectedProductId && productSearch.trim()) {
@@ -1029,10 +1143,11 @@ async function ensureDealId() {
       return;
     }
     try {
+      productSaveInFlight.current = true;
       await backendApi.post(`/deals/${dealId}/products`, {
-        productId: selectedProductId,
+        productId: Number(selectedProductId),
         quantity: qty,
-        listPrice: Number(productForm.listPrice) || 0,
+        unitPrice: Number(productForm.listPrice) || 0,
         discount: Number(productForm.discount) || 0,
         tax: Number(productForm.tax) || 0,
       });
@@ -1048,13 +1163,17 @@ async function ensureDealId() {
     } catch (err) {
       console.error("Add product failed", err);
       showApiError("Failed to add product", err);
+    } finally {
+      productSaveInFlight.current = false;
     }
   }
 
   async function handleAddNote() {
     if (!toCrmId(dealId)) return;
     if (!noteText.trim()) return;
+    if (noteSaveInFlight.current) return;
     try {
+      noteSaveInFlight.current = true;
       await backendApi.post(`/deals/${dealId}/notes`, { title: noteTitle || "Note", text: noteText });
       const [notesRes, timelineRes] = await Promise.all([
         backendApi.get(`/deals/${dealId}/notes`),
@@ -1068,6 +1187,8 @@ async function ensureDealId() {
     } catch (err) {
       console.error("Create note failed", err);
       showApiError("Failed to add note", err);
+    } finally {
+      noteSaveInFlight.current = false;
     }
   }
 
@@ -1092,7 +1213,12 @@ async function ensureDealId() {
                   Customers
                 </button>
                 <span className="text-slate-400">/</span>
-                <h1 className="text-lg font-bold text-slate-900">{safeCustomer.name}</h1>
+                <button
+                  onClick={navigateToDealsPage}
+                  className="text-lg font-bold text-slate-900 hover:text-indigo-600 transition-colors cursor-pointer"
+                >
+                  {safeCustomer.name}
+                </button>
                 <span className="inline-flex items-center rounded-full bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-500 px-4 py-1.5 text-sm font-semibold text-slate-50 shadow-md shadow-indigo-500/30">
                   <span className="mr-1.5 text-[10px] uppercase tracking-[0.18em] text-slate-100/80">Case Value</span>
                   {formatCurrency(grandTotal)}
@@ -1133,7 +1259,10 @@ async function ensureDealId() {
                 <Mail className="h-4 w-4" />
                 Send Mail
               </button>
-              <button className="inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/70 px-3 py-2 text-xs font-medium text-slate-800 shadow-sm transition duration-150 hover:border-indigo-400 hover:text-indigo-700">
+              <button 
+                onClick={() => openCustomerEdit()}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/70 px-3 py-2 text-xs font-medium text-slate-800 shadow-sm transition duration-150 hover:border-indigo-400 hover:text-indigo-700"
+              >
                 <Edit3 className="h-4 w-4" />
                 Edit
               </button>
@@ -1388,6 +1517,7 @@ async function ensureDealId() {
                   <div className="mt-3 flex items-center gap-3">
                     <button
                       onClick={handleAddNote}
+                      disabled={noteSaveInFlight.current}
                       className="rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-emerald-500/30 transition hover:translate-y-[1px] hover:shadow-lg disabled:cursor-not-allowed disabled:bg-emerald-300"
                     >
                       Save
@@ -1430,8 +1560,13 @@ async function ensureDealId() {
                           key={n.id}
                           className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-sm text-slate-700 shadow-sm transition hover:-translate-y-[1px] hover:shadow-md"
                         >
-                          <div className="text-sm font-semibold text-slate-900">{n.title}</div>
-                          <div className="mt-1 text-sm text-slate-700">{n.text}</div>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="text-sm font-semibold text-slate-900">{n.title || "Note"}</div>
+                            <div className="text-[11px] text-slate-500">
+                              {(n.createdByName || n.createdBy || "System")}{n.createdAt ? ` • ${new Date(n.createdAt).toLocaleString()}` : ""}
+                            </div>
+                          </div>
+                          <div className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{n.body || n.text || ""}</div>
                         </div>
                       ))
                     )}
@@ -2066,7 +2201,7 @@ async function ensureDealId() {
                                   type="button"
                                   onClick={async () => {
                                     if (!confirm("Delete this product?")) return;
-                                    await handleDeleteDealProduct(p.id);
+                                    await handleDeleteDealProduct(p.dealProductId ?? p.id);
                                   }}
                                   className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-rose-500 shadow-sm transition hover:border-rose-300 hover:text-rose-600"
                                 >
@@ -3144,6 +3279,96 @@ async function ensureDealId() {
       entityType="product"
       placeholder="Search products by name or code"
     />
+
+    {/* Customer Edit Modal */}
+    {showCustomerEditModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200/80 bg-white/95 shadow-2xl backdrop-blur-md">
+          <div className="flex items-center justify-between border-b border-slate-200/80 p-6">
+            <h2 className="text-lg font-semibold text-slate-900">Edit Customer</h2>
+            <button
+              onClick={() => setShowCustomerEditModal(false)}
+              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Customer Name</label>
+              <input
+                type="text"
+                value={customerEditForm.name || ""}
+                onChange={(e) => setCustomerEditForm({...customerEditForm, name: e.target.value})}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+              <input
+                type="email"
+                value={customerEditForm.email || ""}
+                onChange={(e) => setCustomerEditForm({...customerEditForm, email: e.target.value})}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+              <input
+                type="tel"
+                value={customerEditForm.phone || ""}
+                onChange={(e) => setCustomerEditForm({...customerEditForm, phone: e.target.value})}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Bank</label>
+              <select
+                value={customerEditForm.bankId || ""}
+                onChange={(e) => setCustomerEditForm({...customerEditForm, bankId: e.target.value})}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+              >
+                <option value="">Select bank</option>
+                {banks.map((bankItem) => (
+                  <option key={bankItem.id} value={bankItem.id}>
+                    {bankItem.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
+              <textarea
+                value={customerEditForm.address || ""}
+                onChange={(e) => setCustomerEditForm({...customerEditForm, address: e.target.value})}
+                rows={3}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+              />
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-3 border-t border-slate-200/80 p-6">
+            <button
+              onClick={() => setShowCustomerEditModal(false)}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCustomerUpdate}
+              className="rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-md shadow-blue-500/30 transition hover:translate-y-[1px] hover:shadow-lg"
+            >
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </DashboardLayout>
 
   );

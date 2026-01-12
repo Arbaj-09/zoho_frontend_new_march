@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Search, Edit2, Trash2, Eye, Settings, X, Plus, Building2, DollarSign, Calendar } from "lucide-react";
+import Link from "next/link";
 import { backendApi } from "@/services/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import DynamicFieldsSection from "@/components/dynamic-fields/DynamicFieldsSection";
@@ -191,7 +192,7 @@ export default function DealsPage() {
       setForm({
         name: freshDeal.name || "",
         clientId: freshDeal.clientId || "",
-        bankId: freshDeal.bankId || "",
+        bankId: freshDeal.bankId ? String(freshDeal.bankId) : "",
         branchName: freshDeal.branchName || "",
         description: freshDeal.description || "",
         valueAmount: freshDeal.valueAmount || "",
@@ -229,17 +230,25 @@ export default function DealsPage() {
 
       const payload = {
         name: form.name?.trim(),
-        clientId: form.clientId || null,
-        bankId: form.bankId || null,
+        clientId: form.clientId ? Number(form.clientId) : null,
+        bankId: form.bankId ? Number(form.bankId) : null,
+        relatedBankName: banks.find(b => Number(b.id) === Number(form.bankId))?.name || "",
         branchName: form.branchName?.trim() || null,
         description: form.description || "",
-        valueAmount: Number(form.valueAmount) || 0,
-        requiredAmount: Number(form.requiredAmount) || 0,
-        outstandingAmount: Number(form.outstandingAmount) || 0,
+        valueAmount: form.valueAmount ? Number(form.valueAmount) : 0,
+        requiredAmount: form.requiredAmount ? Number(form.requiredAmount) : 0,
+        outstandingAmount: form.outstandingAmount ? Number(form.outstandingAmount) : 0,
         closingDate: form.closingDate || null,
         stage: form.stage,
-        customFields: form.customFields || {},
+        customFields: JSON.stringify(currentFieldValues || {}),
       };
+
+      // Debug: verify payload types sent to backend
+      try {
+        console.log("[Deals] Payload:", JSON.stringify(payload, null, 2));
+        console.log("typeof customFields:", typeof payload.customFields);
+        console.log("customFields:", payload.customFields);
+      } catch (_) {}
 
       let savedId = selectedDeal?.id;
       if (selectedDeal?.id) {
@@ -261,21 +270,28 @@ export default function DealsPage() {
       }
 
       await fetchDeals();
-      setShowCreateModal(false);
-      setSelectedDeal(null);
-      setCurrentFieldValues({});
-      setForm({
-        name: "",
-        clientId: "",
-        bankId: "",
-        branchName: "",
-        description: "",
-        valueAmount: "",
-        requiredAmount: "",
-        outstandingAmount: "",
-        closingDate: "",
-        stage: "LEAD",
-      });
+      // Only reset form when creating a new deal; keep values after edit
+      if (!selectedDeal?.id) {
+        setShowCreateModal(false);
+        setSelectedDeal(null);
+        setCurrentFieldValues({});
+        setForm({
+          name: "",
+          clientId: "",
+          bankId: "",
+          branchName: "",
+          description: "",
+          valueAmount: "",
+          requiredAmount: "",
+          outstandingAmount: "",
+          closingDate: "",
+          stage: "LEAD",
+        });
+      } else {
+        // After edit, close modal and keep latest data via refreshed list
+        setShowCreateModal(false);
+        setSelectedDeal(null);
+      }
     } catch (err) {
       console.error("Save failed:", err);
       const status = getStatusFromError(err);
@@ -418,7 +434,13 @@ export default function DealsPage() {
                       </td>
 
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
-                        {clients.find(c => c.id === deal.clientId)?.name || "-"}
+                        {deal.clientId ? (
+                          <Link href={`/customers/${deal.clientId}`} className="hover:underline">
+                            {clients.find(c => c.id === deal.clientId)?.name || "-"}
+                          </Link>
+                        ) : (
+                          "-"
+                        )}
                       </td>
 
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">

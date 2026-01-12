@@ -2,6 +2,16 @@ export function createApiClient({ baseUrl = "" } = {}) {
   async function request(path, { method = "GET", body } = {}) {
     // Get auth token from localStorage
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    const userId = (() => {
+      if (typeof window === 'undefined') return null;
+      try {
+        const raw = localStorage.getItem('user_data');
+        const obj = raw ? JSON.parse(raw) : null;
+        return obj?.id ?? null;
+      } catch (_e) {
+        return null;
+      }
+    })();
     
     const res = await fetch(baseUrl + path, {
       method,
@@ -10,6 +20,7 @@ export function createApiClient({ baseUrl = "" } = {}) {
         "Content-Type": body ? "application/json" : undefined,
         // Add authorization header if token exists
         ...(token && { Authorization: `Bearer ${token}` }),
+        ...(userId != null && { "X-User-Id": String(userId) }),
       },
       body: body ? JSON.stringify(body) : undefined,
     });

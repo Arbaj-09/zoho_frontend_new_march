@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Search, Edit2, Trash2, Eye, Settings, X, Plus, Calendar, DollarSign, Building, User, Phone, Mail, MapPin } from "lucide-react";
+import Link from "next/link";
 import { backendApi } from "@/services/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import DynamicFieldsSection from "@/components/DynamicFieldsSection";
@@ -139,7 +140,7 @@ export default function CustomersPage() {
     try {
       const [freshCustomer, customerDeal, fieldValues] = await Promise.all([
         backendApi.get(`/clients/${customer.id}`),
-        backendApi.get(`/deals?clientId=${customer.id}`).catch(() => ({ data: [] })),
+        backendApi.get(`/deals?clientId=${customer.id}`).catch(() => ([])),
         fetch(`http://localhost:8080/api/field-values?entity=client&entityId=${customer.id}`).then(r => r.json()).catch(() => [])
       ]);
 
@@ -149,7 +150,13 @@ export default function CustomersPage() {
         customFields[field.fieldKey] = field.value;
       });
 
-      const deal = Array.isArray(customerDeal.data) ? customerDeal.data[0] : customerDeal;
+      const dealList = Array.isArray(customerDeal)
+        ? customerDeal
+        : Array.isArray(customerDeal?.content)
+          ? customerDeal.content
+          : [];
+
+      const deal = dealList.find((d) => Number(d?.clientId) === Number(customer.id)) || dealList[0] || null;
       
       setSelectedCustomer(freshCustomer);
       setForm({
@@ -157,7 +164,7 @@ export default function CustomersPage() {
         email: freshCustomer.email || "",
         phone: freshCustomer.contactPhone || "",
         address: freshCustomer.address || "",
-        bankId: deal?.bankId || "",
+        bankId: deal?.bankId ? String(deal.bankId) : "",
         branchName: deal?.branchName || "",
         contactName: freshCustomer.contactName || "",
         stage: deal?.stage || "LEAD",
@@ -209,10 +216,8 @@ export default function CustomersPage() {
       let savedCustomer;
       if (selectedCustomer?.id) {
         savedCustomer = await backendApi.put(`/clients/${selectedCustomer.id}`, customerPayload);
-        toast.success("Customer updated successfully");
       } else {
         savedCustomer = await backendApi.post("/clients", customerPayload);
-        toast.success("Customer created successfully");
       }
 
       // Save custom field values
@@ -225,22 +230,24 @@ export default function CustomersPage() {
       }
 
       // Create/Update associated Deal
+      const bankIdNum = form.bankId ? Number(form.bankId) : null;
+      const selectedBank = bankIdNum ? banks.find((b) => Number(b?.id) === bankIdNum) : null;
       const dealPayload = {
         name: form.name?.trim(),
         clientId: savedCustomer.id,
-        bankId: form.bankId || null,
+        bankId: bankIdNum,
         branchName: form.branchName || "",
-        relatedBankName: banks.find(b => b.id === form.bankId)?.name || "",
+        relatedBankName: selectedBank?.name || selectedBank?.bankName || "",
         contactName: form.contactName || "",
         stage: form.stage || "LEAD",
         valueAmount: Number(form.valueAmount) || 0,
         closingDate: form.closingDate || null,
         description: form.description || "",
-        customFields: form.customFields || {}
+        customFields: JSON.stringify(form.customFields || {})
       };
 
       if (selectedCustomer?.id) {
-        const existingDeal = deals.find(deal => deal.clientId === selectedCustomer.id);
+        const existingDeal = deals.find((deal) => Number(deal?.clientId) === Number(selectedCustomer.id));
         if (existingDeal) {
           await backendApi.put(`/deals/${existingDeal.id}`, dealPayload);
         } else {
@@ -249,6 +256,8 @@ export default function CustomersPage() {
       } else {
         await backendApi.post("/deals", dealPayload);
       }
+
+      toast.success(selectedCustomer?.id ? "Customer updated successfully" : "Customer created successfully");
 
       // Refresh data
       await fetchCustomers();
@@ -423,7 +432,9 @@ export default function CustomersPage() {
                     return (
                       <tr key={customer.id} className="hover:bg-slate-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">
-                          {customer.name}
+                          <Link href={`/customers/${customer.id}`} className="hover:underline">
+                            {customer.name}
+                          </Link>
                         </td>
 
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
@@ -664,8 +675,8 @@ export default function CustomersPage() {
                           >
                             <option value="">Select bank</option>
                             {banks.map((bank) => (
-                              <option key={bank.id} value={bank.id}>
-                                {bank.bankName}
+                              <option key={bank.id} value={String(bank.id)}>
+                                {bank.name}
                               </option>
                             ))}
                           </select>
