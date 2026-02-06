@@ -1,12 +1,14 @@
-'use client'; // Add this at the very top
+"use client";
 
-import { useEffect } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
-import { toast } from 'react-toastify';
+import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { toast } from "react-toastify";
+import { Menu, X } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
 
-// Grouped navigation for sidebar
 const sidebarSections = [
   {
     key: "zoho",
@@ -28,97 +30,130 @@ const sidebarSections = [
       { key: "unolo-organization", label: "Organization", href: "/organization", icon: "org", accent: "slate" },
       { key: "unolo-form", label: "Form", href: "/form", icon: "form", accent: "teal" },
       { key: "unolo-order", label: "Order", href: "/order", icon: "order", accent: "orange" },
-      { key: "unolo-client", label: "Client", href: "/clients", icon: "client", accent: "blue-gray" },
       { key: "unolo-sites", label: "Sites", href: "/sites", icon: "sites", accent: "lime" },
+      { key: "tasks", label: "Tasks", href: "/tasks", icon: "tasks", accent: "indigo" },
     ],
   },
 ];
 
-// Flattened list for active key detection (kept for backward compatibility)
-const navigationItems = sidebarSections.flatMap((section) => section.items);
+const navigationItems = sidebarSections.flatMap((s) => s.items);
 
 export default function DashboardLayout({ header, children }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Simple auth guard: redirect to /login if not logged in
+  // ✅ disable background scroll when menu open
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    document.body.style.overflow = mobileMenuOpen ? "hidden" : "";
+    return () => (document.body.style.overflow = "");
+  }, [mobileMenuOpen]);
 
-    // Do not guard the login page itself
-    if (pathname === '/login') return;
-
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        router.replace('/login');
-      }
+  // ✅ auth guard
+  useEffect(() => {
+    if (pathname === "/login") return;
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("auth_token");
+      if (!token) router.replace("/login");
     }
   }, [pathname, router]);
 
   const handleLogout = () => {
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.removeItem('auth_token');
-      } catch (e) {
-        // ignore
-      }
-    }
-    toast.success('Logged out successfully');
-    router.push('/login');
+    if (typeof window !== "undefined") localStorage.removeItem("auth_token");
+    toast.success("Logged out successfully");
+    router.push("/login");
   };
 
-  // Sidebar active item
   const getActiveKey = () => {
-    const item = navigationItems.find(item =>
-      item.href === '/'
-        ? pathname === '/'
-        : pathname.startsWith(item.href)
+    const item = navigationItems.find((item) =>
+      item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
     );
     return item?.key || "dashboard";
   };
 
-  // Auto-detect active tab
   const getActiveTabKey = () => {
     if (!header?.tabs) return null;
-
-    const activeTab = header.tabs.find(tab => {
-      if (tab.href === '/') {
-        return pathname === '/';
-      }
-      return pathname.startsWith(tab.href);
-    });
-
+    const activeTab = header.tabs.find((tab) =>
+      tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href)
+    );
     return activeTab?.key || header?.activeTabKey;
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="flex">
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* MOBILE HAMBURGER - show only < md */}
+      <button
+        type="button"
+        onClick={() => setMobileMenuOpen(true)}
+        className="fixed top-4 left-4 z-[60] rounded-lg p-2 bg-white/85 backdrop-blur border border-slate-200 shadow-lg md:hidden"
+        aria-label="Open menu"
+      >
+        <Menu className="h-5 w-5 text-slate-700" />
+      </button>
+
+      {/* Mobile Drawer */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[60] bg-black/50 md:hidden"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+
+            <motion.div
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+              className="fixed inset-y-0 left-0 z-[65] md:hidden"
+            >
+              <div className="relative h-[100dvh]">
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="absolute top-3 right-3 z-[80] rounded-xl p-2 bg-white/85 backdrop-blur border border-slate-200 shadow-lg"
+                >
+                  <X className="h-5 w-5 text-slate-800" />
+                </button>
+
+                <Sidebar
+                  sections={sidebarSections}
+                  brand="Yash"
+                  activeKey={getActiveKey()}
+                  onLogout={handleLogout}
+                  onNavigate={() => setMobileMenuOpen(false)}
+                />
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ✅ Desktop Sidebar: md mini + lg full */}
+      <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-[100dvh] md:z-20">
         <Sidebar
           sections={sidebarSections}
-          activeKey={getActiveKey()}
           brand="Yash"
+          activeKey={getActiveKey()}
           onLogout={handleLogout}
         />
+      </div>
 
-        <div className="flex min-w-0 flex-1 flex-col lg:ml-72">
-          {/* TOPBAR */}
-          <Topbar
-            project={header?.project}
-            user={header?.user}
-            notifications={header?.notifications}
-            tabs={header?.tabs || []}
-            activeTabKey={getActiveTabKey()}
-            onTabClick={(tab) => {
-              if (tab?.href) {
-                router.push(tab.href);
-              }
-            }}
-          />
-          <main className="mx-auto w-full max-w-[1600px] px-6 py-6 overflow-y-auto">
-            {children}
-          </main>
-        </div>
+      {/* ✅ Main content spacing */}
+      <div className="flex-1 md:ml-20 lg:ml-72 min-h-screen">
+        <Topbar
+          tabs={header?.tabs || []}
+          activeTabKey={getActiveTabKey()}
+          onTabClick={(tab) => tab?.href && router.push(tab.href)}
+        />
+
+        <main className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 py-6">
+          <div className="min-h-screen pb-20">{children}</div>
+        </main>
       </div>
     </div>
   );

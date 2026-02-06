@@ -33,6 +33,10 @@ export default function OrganizationPage() {
     const [forceUpdate, setForceUpdate] = useState(0);
     const [tableKey, setTableKey] = useState(0);
     const [shouldRemount, setShouldRemount] = useState(true);
+    const [emailModalOpen, setEmailModalOpen] = useState(false);
+    const [selectedEmployee, setSelectedEmployee] = useState(null);
+    const [emailStatus, setEmailStatus] = useState('idle'); // idle, sending, success, error
+    const [emailMessage, setEmailMessage] = useState('');
 
     // Handle employee deletion
     const handleDeleteEmployee = async (employeeId) => {
@@ -89,6 +93,65 @@ export default function OrganizationPage() {
         setOpenAddForm(true);
     };
 
+    // Handle email modal
+    const handleEmailClick = (employee) => {
+        setSelectedEmployee(employee);
+        setEmailModalOpen(true);
+        setEmailStatus('idle');
+        setEmailMessage('');
+    };
+
+    // Handle login details email
+    const handleLoginDetailsClick = (employee) => {
+        setSelectedEmployee(employee);
+        setEmailModalOpen(true);
+        setEmailStatus('idle');
+        setEmailMessage('');
+    };
+
+    // Handle sending email
+    const handleSendEmail = async () => {
+        if (!selectedEmployee) return;
+        
+        setEmailStatus('sending');
+        setEmailMessage('Sending email...');
+        
+        try {
+            // Always send login details now
+            const endpoint = `/organization/send-login-details/${selectedEmployee.id}`;
+            
+            const data = await backendApi.post(endpoint);
+            
+            // api.js returns data directly, not wrapped in response.data
+            if (data?.success) {
+                setEmailStatus('success');
+                setEmailMessage(data.message || 'Email sent successfully');
+                // Close modal after success
+                setTimeout(() => {
+                    setEmailModalOpen(false);
+                    setSelectedEmployee(null);
+                    setEmailStatus('idle');
+                    setEmailMessage('');
+                }, 2000);
+            } else {
+                setEmailStatus('error');
+                setEmailMessage(data?.message || 'Failed to send email');
+            }
+        } catch (error) {
+            setEmailStatus('error');
+            setEmailMessage(error?.data?.message || error.message || 'Failed to send email. Please try again.');
+            console.error('Error sending email:', error);
+        }
+    };
+
+    // Close email modal
+    const closeEmailModal = () => {
+        setEmailModalOpen(false);
+        setSelectedEmployee(null);
+        setEmailStatus('idle');
+        setEmailMessage('');
+    };
+
     // Handle form close
     const handleCloseForm = () => {
         console.log('handleCloseForm called - refreshing employee list');
@@ -120,6 +183,7 @@ export default function OrganizationPage() {
                     name,
                     userId: e.userId,
                     employeeId: e.employeeId,
+                    email: e.email, // Add email field
                     phone: e.phone,
                     dateOfBirth: e.dateOfBirth || "-",
                     gender: e.gender || "-",
@@ -240,7 +304,6 @@ export default function OrganizationPage() {
                     name: "Admin User",
                     role: "Administrator"
                 },
-                notifications: [],
                 tabs: [
                           { key: "employees", label: "Employees", href: "/organization" },
                     { key: "admins", label: "Admins", href: "/admins" },
@@ -454,6 +517,15 @@ export default function OrganizationPage() {
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
                                             <div className="flex items-center space-x-3">
                                                 <button
+                                                    onClick={() => handleLoginDetailsClick(employee)}
+                                                    className="text-green-600 hover:text-green-900 p-1 rounded-full hover:bg-green-50"
+                                                    title="Send Login Details"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clipRule="evenodd" />
+                                                    </svg>
+                                                </button>
+                                                <button
                                                     onClick={() => handleEditEmployee(employee)}
                                                     className="text-indigo-600 hover:text-indigo-900 p-1 rounded-full hover:bg-indigo-50"
                                                     title="Edit"
@@ -527,6 +599,87 @@ export default function OrganizationPage() {
                         </div>
                         <div className="p-6">
                             <AddEmployeeModal onClose={handleCloseForm} editingEmployee={editingEmployee} />
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* Email Confirmation Modal */}
+            {emailModalOpen && selectedEmployee && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900">Send Login Details</h3>
+                            <button 
+                                onClick={closeEmailModal}
+                                className="text-gray-400 hover:text-gray-600"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        
+                        <div className="mb-6">
+                            <p className="text-gray-600 mb-4">
+                                Are you sure you want to send login credentials to:
+                            </p>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                                <p className="font-medium text-gray-900">{selectedEmployee.name}</p>
+                                <p className="text-sm text-gray-600">{selectedEmployee.email || selectedEmployee.originalData?.email || 'N/A'}</p>
+                                <p className="text-sm text-gray-500">Employee ID: {selectedEmployee.employeeId}</p>
+                                <p className="text-sm text-gray-500 mt-2">
+                                    <span className="font-medium">Username:</span> {selectedEmployee.email || selectedEmployee.originalData?.email || 'N/A'}
+                                </p>
+                            </div>
+                        </div>
+                        
+                        {emailMessage && (
+                            <div className={`mb-4 p-3 rounded-lg text-sm ${
+                                emailStatus === 'success' ? 'bg-green-100 text-green-700' :
+                                emailStatus === 'error' ? 'bg-red-100 text-red-700' :
+                                'bg-blue-100 text-blue-700'
+                            }`}>
+                                {emailMessage}
+                            </div>
+                        )}
+                        
+                        <div className="flex space-x-3">
+                            <button
+                                onClick={closeEmailModal}
+                                disabled={emailStatus === 'sending'}
+                                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSendEmail}
+                                disabled={emailStatus === 'sending'}
+                                className={`flex-1 px-4 py-2 rounded-lg text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed ${
+                                    emailStatus === 'sending' ? 'bg-yellow-500 hover:bg-yellow-600' :
+                                    emailStatus === 'success' ? 'bg-green-500 hover:bg-green-600' :
+                                    'bg-green-600 hover:bg-green-700'
+                                }`}
+                            >
+                                {emailStatus === 'sending' ? (
+                                    <span className="flex items-center justify-center">
+                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Sending...
+                                    </span>
+                                ) : emailStatus === 'success' ? (
+                                    <span className="flex items-center justify-center">
+                                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        Sent!
+                                    </span>
+                                ) : (
+                                    'Send Login'
+                                )}
+                            </button>
                         </div>
                     </div>
                 </div>

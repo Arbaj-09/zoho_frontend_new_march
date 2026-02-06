@@ -2,6 +2,22 @@
 
 import { cn } from "@/utils/helpers";
 
+function safeParseOptions(optionsJson) {
+  if (!optionsJson) return [];
+  if (Array.isArray(optionsJson)) return optionsJson;
+
+  // if backend sends string like: ["A","B"]
+  if (typeof optionsJson === "string") {
+    try {
+      const parsed = JSON.parse(optionsJson);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+}
+
 export default function DynamicFieldInput({ def, value, onChange }) {
   const type = String(def?.fieldType || "TEXT").toUpperCase();
   const id = `df_${def?.fieldKey}`;
@@ -24,8 +40,10 @@ export default function DynamicFieldInput({ def, value, onChange }) {
     );
   }
 
-  if (type === "DROPDOWN") {
-    const opts = Array.isArray(def?.optionsJson) ? def.optionsJson : [];
+  // ✅ SELECT / DROPDOWN
+  if (type === "SELECT" || type === "DROPDOWN") {
+    const opts = safeParseOptions(def?.optionsJson);
+
     return (
       <select
         id={id}

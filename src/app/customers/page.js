@@ -4,8 +4,9 @@ import { useState, useEffect } from "react";
 import { Search, Edit2, Trash2, Eye, Settings, X, Plus, Calendar, DollarSign, Building, User, Phone, Mail, MapPin } from "lucide-react";
 import Link from "next/link";
 import { backendApi } from "@/services/api";
+import { clientApi } from "@/services/clientApi";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import DynamicFieldsSection from "@/components/DynamicFieldsSection";
+import DynamicFieldsSection from "@/components/dynamic-fields/DynamicFieldsSection";
 import { toast } from "react-toastify";
 import { getLoggedInUser } from "@/utils/auth";
 
@@ -19,15 +20,21 @@ export default function CustomersPage() {
   const [showDetailsDrawer, setShowDetailsDrawer] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [dynamicColumns, setDynamicColumns] = useState([]);
+  const [clientFieldDefinitions, setClientFieldDefinitions] = useState([]);
   
   const [form, setForm] = useState({
     name: "",
     email: "",
     phone: "",
     address: "",
+    city: "",
+    pincode: "",
+    state: "",
+    country: "",
+    contactName: "",
+    contactNumber: "",
     bankId: "",
     branchName: "",
-    contactName: "",
     stage: "LEAD",
     valueAmount: "",
     closingDate: "",
@@ -56,8 +63,7 @@ export default function CustomersPage() {
   const fetchCustomers = async () => {
     setLoading(true);
     try {
-      const res = await backendApi.get("/clients");
-      const customersData = normalizeList(res);
+      const customersData = await clientApi.list();
       setCustomers(customersData);
 
       // Extract dynamic columns from custom fields
@@ -94,10 +100,20 @@ export default function CustomersPage() {
     }
   };
 
+  const fetchClientFields = async () => {
+    try {
+      const res = await backendApi.get("/client-fields");
+      setClientFieldDefinitions(res);
+    } catch (err) {
+      console.error("Failed to fetch client field definitions:", err);
+    }
+  };
+
   useEffect(() => {
     fetchCustomers();
     fetchBanks();
     fetchDeals();
+    fetchClientFields();
   }, []);
 
   const formatLabel = (key) => {
@@ -123,9 +139,14 @@ export default function CustomersPage() {
       email: "",
       phone: "",
       address: "",
+      city: "",
+      pincode: "",
+      state: "",
+      country: "",
+      contactName: "",
+      contactNumber: "",
       bankId: "",
       branchName: "",
-      contactName: "",
       stage: "LEAD",
       valueAmount: "",
       closingDate: "",
@@ -139,23 +160,12 @@ export default function CustomersPage() {
   const openEdit = async (customer) => {
     try {
       const [freshCustomer, customerDeal, fieldValues] = await Promise.all([
-        backendApi.get(`/clients/${customer.id}`),
-        backendApi.get(`/deals?clientId=${customer.id}`).catch(() => ([])),
-        fetch(`http://localhost:8080/api/field-values?entity=client&entityId=${customer.id}`).then(r => r.json()).catch(() => [])
+        clientApi.getById(customer.id),
+        backendApi.get(`/deals?clientId=${customer.id}`).catch(() => []),
+        clientApi.getFieldValuesAsMap(customer.id).catch(() => ({}))
       ]);
 
-      // Convert field values to object
-      const customFields = {};
-      fieldValues.forEach(field => {
-        customFields[field.fieldKey] = field.value;
-      });
-
-      const dealList = Array.isArray(customerDeal)
-        ? customerDeal
-        : Array.isArray(customerDeal?.content)
-          ? customerDeal.content
-          : [];
-
+      const dealList = normalizeList(customerDeal);
       const deal = dealList.find((d) => Number(d?.clientId) === Number(customer.id)) || dealList[0] || null;
       
       setSelectedCustomer(freshCustomer);
@@ -164,14 +174,19 @@ export default function CustomersPage() {
         email: freshCustomer.email || "",
         phone: freshCustomer.contactPhone || "",
         address: freshCustomer.address || "",
+        city: freshCustomer.city || "",
+        pincode: freshCustomer.pincode || "",
+        state: freshCustomer.state || "",
+        country: freshCustomer.country || "",
+        contactName: freshCustomer.contactName || "",
+        contactNumber: freshCustomer.contactNumber || "",
         bankId: deal?.bankId ? String(deal.bankId) : "",
         branchName: deal?.branchName || "",
-        contactName: freshCustomer.contactName || "",
         stage: deal?.stage || "LEAD",
         valueAmount: deal?.valueAmount || "",
         closingDate: deal?.closingDate || "",
         description: deal?.description || "",
-        customFields: customFields
+        customFields: fieldValues || {}
       });
       setShowCreateDrawer(true);
     } catch (err) {
@@ -207,7 +222,12 @@ export default function CustomersPage() {
         email: form.email?.trim() || null,
         contactPhone: form.phone?.trim() || null,
         address: form.address || "",
-        customFields: JSON.stringify(form.customFields || {}),
+        city: form.city || "",
+        pincode: form.pincode || "",
+        state: form.state || "",
+        country: form.country || "",
+        contactName: form.contactName || "",
+        contactNumber: form.contactNumber?.trim() || null,
         // Include owner fields for backend auto-population
         ownerId: user?.id ?? null,
         createdBy: user?.id ?? null,
@@ -215,18 +235,14 @@ export default function CustomersPage() {
 
       let savedCustomer;
       if (selectedCustomer?.id) {
-        savedCustomer = await backendApi.put(`/clients/${selectedCustomer.id}`, customerPayload);
+        savedCustomer = await clientApi.update(selectedCustomer.id, customerPayload);
       } else {
-        savedCustomer = await backendApi.post("/clients", customerPayload);
+        savedCustomer = await clientApi.create(customerPayload);
       }
 
-      // Save custom field values
+      // Save custom field values using our new API
       if (form.customFields && Object.keys(form.customFields).length > 0) {
-        await fetch(`http://localhost:8080/api/field-values/batch?entity=client&entityId=${savedCustomer.id}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form.customFields)
-        });
+        await clientApi.bulkUpdateFieldValues(savedCustomer.id, form.customFields);
       }
 
       // Create/Update associated Deal
@@ -269,9 +285,14 @@ export default function CustomersPage() {
         email: "",
         phone: "",
         address: "",
+        city: "",
+        pincode: "",
+        state: "",
+        country: "",
+        contactName: "",
+        contactNumber: "",
         bankId: "",
         branchName: "",
-        contactName: "",
         stage: "LEAD",
         valueAmount: "",
         closingDate: "",
@@ -300,7 +321,7 @@ export default function CustomersPage() {
     if (!confirm("Delete this customer?")) return;
     
     try {
-      await backendApi.delete(`/clients/${id}`);
+      await clientApi.delete(id);
       
       // Optimistic remove
       setCustomers((prev) => prev.filter((c) => c.id !== id));
@@ -402,6 +423,9 @@ export default function CustomersPage() {
                       Phone
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                      Address
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
                       Deal Stage
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
@@ -443,6 +467,25 @@ export default function CustomersPage() {
 
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
                           {customer.contactPhone || "-"}
+                        </td>
+
+                        <td className="px-6 py-4 text-sm text-slate-700">
+                          <div className="max-w-xs">
+                            <div className="truncate">{customer.address || "-"}</div>
+                            {(customer.city || customer.state || customer.pincode || customer.country) && (
+                              <div className="text-xs text-slate-500 truncate">
+                                {[customer.city, customer.state, customer.pincode, customer.country]
+                                  .filter(Boolean)
+                                  .join(', ')}
+                              </div>
+                            )}
+                            {customer.contactName && (
+                              <div className="text-xs text-slate-600 truncate mt-1">
+                                Contact: {customer.contactName}
+                                {customer.contactNumber && ` (${customer.contactNumber})`}
+                              </div>
+                            )}
+                          </div>
                         </td>
 
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
@@ -622,6 +665,19 @@ export default function CustomersPage() {
                             placeholder="Contact person name"
                           />
                         </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Contact Number
+                          </label>
+                          <input
+                            type="tel"
+                            value={form.contactNumber}
+                            onChange={(e) => setForm({ ...form, contactNumber: e.target.value })}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                            placeholder="Contact person phone number"
+                          />
+                        </div>
                       </div>
 
                       <div className="mt-4">
@@ -635,6 +691,60 @@ export default function CustomersPage() {
                           className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
                           placeholder="Enter customer address"
                         />
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mt-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            City
+                          </label>
+                          <input
+                            type="text"
+                            value={form.city}
+                            onChange={(e) => setForm({ ...form, city: e.target.value })}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                            placeholder="Enter city"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Pincode
+                          </label>
+                          <input
+                            type="text"
+                            value={form.pincode}
+                            onChange={(e) => setForm({ ...form, pincode: e.target.value })}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                            placeholder="Enter pincode"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mt-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            State
+                          </label>
+                          <input
+                            type="text"
+                            value={form.state}
+                            onChange={(e) => setForm({ ...form, state: e.target.value })}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                            placeholder="Enter state"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Country
+                          </label>
+                          <input
+                            type="text"
+                            value={form.country}
+                            onChange={(e) => setForm({ ...form, country: e.target.value })}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                            placeholder="Enter country"
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -757,8 +867,10 @@ export default function CustomersPage() {
 
                     {/* Custom Fields */}
                     <DynamicFieldsSection
+                      key={selectedCustomer?.id || "create"}
                       entity="client"
                       entityId={selectedCustomer?.id}
+                      definitions={clientFieldDefinitions}
                       values={form.customFields}
                       onChange={(values) => setForm({ ...form, customFields: values })}
                     />
@@ -851,8 +963,30 @@ export default function CustomersPage() {
                           <div>
                             <div className="text-sm font-medium text-slate-900">Address</div>
                             <div className="text-sm text-slate-600">{selectedCustomer.address || "-"}</div>
+                            {(selectedCustomer.city || selectedCustomer.state || selectedCustomer.pincode || selectedCustomer.country) && (
+                              <div className="text-sm text-slate-600 mt-1">
+                                {[selectedCustomer.city, selectedCustomer.state, selectedCustomer.pincode, selectedCustomer.country]
+                                  .filter(Boolean)
+                                  .join(', ')}
+                              </div>
+                            )}
                           </div>
                         </div>
+
+                        {(selectedCustomer.contactName || selectedCustomer.contactNumber) && (
+                          <div className="flex items-start gap-3">
+                            <User className="h-4 w-4 text-slate-400 mt-0.5" />
+                            <div>
+                              <div className="text-sm font-medium text-slate-900">Contact Person</div>
+                              {selectedCustomer.contactName && (
+                                <div className="text-sm text-slate-600">{selectedCustomer.contactName}</div>
+                              )}
+                              {selectedCustomer.contactNumber && (
+                                <div className="text-sm text-slate-600">{selectedCustomer.contactNumber}</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { backendApi } from "@/services/api";
+import { clientApi } from "@/services/clientApi";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
@@ -30,6 +31,9 @@ import {
   Eye,
   Download,
   Upload,
+  MapPin,
+  Phone,
+  Building,
 } from "lucide-react";
 
 dayjs.extend(utc);
@@ -86,6 +90,7 @@ export default function CustomerDetailPage() {
   const [timeline, setTimeline] = useState([]);
   const [deal, setDeal] = useState(null);
   const [dealId, setDealId] = useState(null);
+  const [sites, setSites] = useState([]); // ✅ NEW: Sites state
 
   const [dealFieldDefs, setDealFieldDefs] = useState([]);
   const [dealFieldValues, setDealFieldValues] = useState({});
@@ -101,6 +106,13 @@ export default function CustomerDetailPage() {
   const [noteText, setNoteText] = useState("");
   const [noteTitle, setNoteTitle] = useState("");
   const [noteFile, setNoteFile] = useState(null);
+
+  // Product catalog and edit state
+  const [catalogProducts, setCatalogProducts] = useState([]);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [editingDealProductId, setEditingDealProductId] = useState(null);
+  const [productFieldDefs, setProductFieldDefs] = useState([]);
+  const [productCustomValues, setProductCustomValues] = useState({});
 
   const stageChangeInFlight = useRef(false);
   const productSaveInFlight = useRef(false);
@@ -268,6 +280,72 @@ export default function CustomerDetailPage() {
     return Number.isInteger(n) && n > 0 ? n : null;
   };
 
+  // Load product catalog for dropdown
+  async function loadCatalogProducts() {
+    try {
+      setLoadingCatalog(true);
+      const res = await backendApi.get('/products?size=200');
+      // normalizeList if you have it; else use res.content fallback
+      const list = Array.isArray(res?.content) ? res.content : (Array.isArray(res) ? res : []);
+      setCatalogProducts(list);
+    } catch (e) {
+      console.error('Failed to load product catalog', e);
+      setCatalogProducts([]);
+    } finally {
+      setLoadingCatalog(false);
+    }
+  }
+
+  // Load product field definitions for dynamic columns
+  async function loadProductFieldDefs() {
+    try {
+      const defs = await fetchFieldDefinitions('product');
+      setProductFieldDefs(normalizeDefinitions(defs));
+    } catch {
+      setProductFieldDefs([]);
+    }
+  }
+
+  // Handle selecting a product from catalog dropdown
+  function handleSelectCatalogProduct(prodId) {
+    const prod = catalogProducts.find((x) => Number(x.id) === Number(prodId));
+    if (!prod) return;
+    setProductForm((prev) => ({
+      ...prev,
+      productId: String(prod.id),
+      productName: prod.name || prod.productName || "",
+      productCode: prod.code || prod.productCode || "",
+      basePrice: prod.price ?? prod.basePrice ?? prev.basePrice ?? "0",
+      listPrice: prod.price ?? prod.listPrice ?? prev.listPrice ?? "0",
+      quantity: prev.quantity || "1",
+      discount: prev.discount ?? "0",
+      tax: prev.tax ?? "0",
+    }));
+    setProductFormError("");
+  }
+
+  // Open product modal in edit mode
+  function openProductEdit(p) {
+    setEditingDealProductId(p.dealProductId ?? p.id ?? null);
+    if (p.productId) {
+      // preselect catalog product so fields auto-fill and calc runs
+      handleSelectCatalogProduct(p.productId);
+    } else {
+      setProductForm({
+        productId: "",
+        productName: p.name || "",
+        productCode: p.code || "",
+        basePrice: String(p.price ?? p.unitPrice ?? 0),
+        listPrice: String(p.price ?? p.unitPrice ?? 0),
+        quantity: String(p.qty ?? p.quantity ?? 1),
+        discount: String(p.discount ?? 0),
+        tax: String(p.tax ?? 0),
+      });
+    }
+    setProductFormError("");
+    setIsProductModalOpen(true);
+  }
+
   async function handleDeleteActivity(type, activityId) {
     if (!toCrmId(dealId)) return;
     if (!activityId) return;
@@ -326,6 +404,18 @@ export default function CustomerDetailPage() {
         setError("Failed to load cases: " + err.message);
       } finally {
         if (isMounted) setLoadingCases(false);
+      }
+    }
+
+    // ✅ NEW: Load sites for client
+    async function loadSites() {
+      try {
+        const data = await clientApi.getSites(customerId);
+        if (!isMounted) return;
+        setSites(data || []);
+      } catch (err) {
+        console.error("Failed to load sites", err);
+        // Don't set error for sites, just log it
       }
     }
 
@@ -438,6 +528,10 @@ export default function CustomerDetailPage() {
           if (isMounted) setBanks([]);
         }
 
+        // Load product catalog and field definitions
+        await loadCatalogProducts();
+        await loadProductFieldDefs();
+
         if (dealRes?.bankId) {
           try {
             const bankRes = await backendApi.get(`/banks/${dealRes.bankId}`);
@@ -456,6 +550,7 @@ export default function CustomerDetailPage() {
 
     loadCustomer();
     loadCases();
+    loadSites(); // ✅ NEW: Load sites
     loadDealCrm();
 
     return () => {
@@ -489,6 +584,7 @@ export default function CustomerDetailPage() {
     quantity: "1",
     discount: "0",
     tax: "0",
+    productId: "",
   });
 
   const [taskForm, setTaskForm] = useState({
@@ -857,6 +953,7 @@ export default function CustomerDetailPage() {
   function closeProductModal() {
     setIsProductModalOpen(false);
     setProductFormError("");
+    setEditingDealProductId(null);
     setProductForm({
       productName: "",
       productCode: "",
@@ -946,8 +1043,13 @@ async function ensureDealId() {
       email: customer?.email || "",
       phone: customer?.contactPhone || "",
       address: customer?.address || "",
-      bankId: bank?.id || "",
+      city: customer?.city || "",
+      pincode: customer?.pincode || "",
+      state: customer?.state || "",
+      country: customer?.country || "",
       contactName: customer?.contactName || "",
+      contactNumber: customer?.contactNumber || "",
+      bankId: bank?.id || "",
     });
     setShowCustomerEditModal(true);
   };
@@ -960,10 +1062,15 @@ async function ensureDealId() {
         email: customerEditForm.email,
         contactPhone: customerEditForm.phone,
         address: customerEditForm.address,
+        city: customerEditForm.city,
+        pincode: customerEditForm.pincode,
+        state: customerEditForm.state,
+        country: customerEditForm.country,
         contactName: customerEditForm.contactName,
+        contactNumber: customerEditForm.contactNumber,
       };
 
-      await backendApi.put(`/clients/${customerEditForm.id}`, payload);
+      await clientApi.update(customerEditForm.id, payload);
       
       // Update local state
       setCustomer(prev => ({ ...prev, ...payload }));
@@ -1146,58 +1253,85 @@ async function ensureDealId() {
   }
 
   async function saveProductFromModal() {
-    if (!toCrmId(dealId)) return;
+    const crmDealId = toCrmId(dealId);
+    if (!crmDealId) return;
     if (productSaveInFlight.current) return;
+
     const qty = Number(productForm.quantity) || 0;
+    const unitPrice = Number(productForm.listPrice) || Number(productForm.basePrice) || 0;
+    const discount = Number(productForm.discount) || 0;
+    const tax = Number(productForm.tax) || 0;
+
     try {
       productSaveInFlight.current = true;
 
-      if (!productForm.productName?.trim()) {
-        setProductFormError("Please enter a product name.");
+      if (!productForm.productName?.trim() && !productForm.productId) {
+        setProductFormError("Select a product or enter a new product name.");
         return;
       }
-      if (Number.isNaN(qty) || qty <= 0) {
+      if (!qty || qty <= 0) {
         setProductFormError("Please enter a valid quantity.");
         return;
       }
 
-      const basePrice = Number(productForm.basePrice) || 0;
-      const listPrice = Number(productForm.listPrice) || 0;
-
-      const createdProduct = await backendApi.post(`/products`, {
-        name: productForm.productName.trim(),
-        code: productForm.productCode || "",
-        price: basePrice,
-        active: true,
-      });
-
-      const createdProductId = createdProduct?.id ? String(createdProduct.id) : "";
-      if (!createdProductId) {
-        setProductFormError("Failed to create product.");
-        return;
+      // 1) Edit existing deal product line
+      if (editingDealProductId) {
+        await backendApi.put(`/deals/${crmDealId}/products/${editingDealProductId}`, {
+          productId: productForm.productId ? Number(productForm.productId) : null,
+          quantity: qty,
+          unitPrice,
+          discount,
+          tax,
+        });
+      }
+      // 2) Attach existing product to deal
+      else if (productForm.productId) {
+        await backendApi.post(`/deals/${crmDealId}/products`, {
+          productId: Number(productForm.productId),
+          quantity: qty,
+          unitPrice,
+          discount,
+          tax,
+        });
+      }
+      // 3) Create new product, then attach
+      else {
+        const created = await backendApi.post(`/products`, {
+          name: productForm.productName.trim(),
+          code: productForm.productCode || "",
+          price: Number(productForm.basePrice) || 0,
+          active: true,
+        });
+        const createdId = created?.id;
+        if (!createdId) {
+          setProductFormError("Failed to create product.");
+          return;
+        }
+        await backendApi.post(`/deals/${crmDealId}/products`, {
+          productId: Number(createdId),
+          quantity: qty,
+          unitPrice,
+          discount,
+          tax,
+        });
       }
 
-      await backendApi.post(`/deals/${dealId}/products`, {
-        productId: Number(createdProductId),
-        quantity: qty,
-        unitPrice: listPrice,
-        discount: Number(productForm.discount) || 0,
-        tax: Number(productForm.tax) || 0,
-      });
+      // Refresh relevant sections
       const [productsRes, dealRes, timelineRes] = await Promise.all([
-        backendApi.get(`/deals/${dealId}/products`),
-        backendApi.get(`/deals/${dealId}`),
-        backendApi.get(`/deals/${dealId}/timeline`),
+        backendApi.get(`/deals/${crmDealId}/products`),
+        backendApi.get(`/deals/${crmDealId}`),
+        backendApi.get(`/deals/${crmDealId}/timeline`),
       ]);
       setProducts(adaptDealProducts(productsRes));
       setDeal(dealRes || null);
       setTimeline(adaptTimeline(timelineRes));
       closeProductModal();
     } catch (err) {
-      console.error("Add product failed", err);
-      showApiError("Failed to add product", err);
+      console.error("Add/update product failed", err);
+      showApiError(editingDealProductId ? "Failed to update product" : "Failed to add product", err);
     } finally {
       productSaveInFlight.current = false;
+      setEditingDealProductId(null);
     }
   }
 
@@ -1459,6 +1593,7 @@ async function ensureDealId() {
                     { key: "notes", label: "Notes" },
                     { key: "activities", label: "Activities", count: tasks.length },
                     { key: "stageHistory", label: "Stage History", count: stageHistory.length },
+                    { key: "sites", label: "Sites", count: sites.length },
                     { key: "files", label: "Files", count: docs.length },
                     { key: "products", label: "Products", count: products.length },
                     { key: "emails", label: "Emails" },
@@ -2005,6 +2140,89 @@ async function ensureDealId() {
                 </div>
               )}
 
+              {activeTab === "sites" && (
+                <div className="mt-5 animate-[fadeIn_0.25s_ease-out]">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div className="text-sm font-semibold text-slate-900">Sites & Locations</div>
+                    <button
+                      className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-emerald-500/40 transition hover:translate-y-[1px] hover:shadow-lg"
+                    >
+                      <Plus className="h-4 w-4" /> Add Site
+                    </button>
+                  </div>
+                  {sites.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-8 text-center">
+                      <Building className="mx-auto h-12 w-12 text-slate-400" />
+                      <h3 className="mt-4 text-sm font-semibold text-slate-900">No sites yet</h3>
+                      <p className="mt-2 text-sm text-slate-600">Get started by adding the first site for this customer.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-950/[0.01] shadow-sm">
+                      <div className="max-h-[400px] overflow-auto">
+                        <table className="min-w-full divide-y divide-slate-100">
+                          <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Site Name</th>
+                              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Site ID</th>
+                              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Address</th>
+                              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Contact</th>
+                              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Location</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 bg-white/90">
+                            {sites.map((site) => (
+                              <tr key={site.id} className="transition hover:bg-slate-50/80">
+                                <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-slate-900">
+                                  <div className="flex items-center gap-2">
+                                    <Building className="h-4 w-4 text-slate-400" />
+                                    {site.siteName}
+                                  </div>
+                                </td>
+                                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-700">{site.siteId}</td>
+                                <td className="px-4 py-3 text-sm text-slate-900">
+                                  <div className="max-w-xs">
+                                    <div className="truncate">{site.address || '-'}</div>
+                                    {site.city && <div className="text-xs text-slate-500">{site.city}</div>}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-sm text-slate-900">
+                                  <div className="flex flex-col gap-1">
+                                    {site.contactPerson && (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs text-slate-600">{site.contactPerson}</span>
+                                      </div>
+                                    )}
+                                    {site.contactNumber && (
+                                      <div className="flex items-center gap-1 text-xs text-slate-500">
+                                        <Phone className="h-3 w-3" />
+                                        {site.contactNumber}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-sm text-slate-900">
+                                  {site.latitude && site.longitude ? (
+                                    <div className="flex items-center gap-1 text-xs text-emerald-600">
+                                      <MapPin className="h-3 w-3" />
+                                      Location set
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1 text-xs text-slate-400">
+                                      <MapPin className="h-3 w-3" />
+                                      No location
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {activeTab === "files" && (
                 <div className="mt-5 animate-[fadeIn_0.25s_ease-out]">
                   <div className="mb-4 flex items-center justify-between">
@@ -2219,6 +2437,11 @@ async function ensureDealId() {
                           <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                             Tax
                           </th>
+                          {productFieldDefs.map((def) => (
+                            <th key={def.key} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                              {def.label || def.key}
+                            </th>
+                          ))}
                           <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                             Final Amount (₹)
                           </th>
@@ -2242,6 +2465,19 @@ async function ensureDealId() {
                             <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{p.qty.toFixed(2)}</td>
                             <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{p.discount.toLocaleString("en-IN")}</td>
                             <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">{(p.tax || 0).toLocaleString("en-IN")}</td>
+                            {productFieldDefs.map((def) => {
+                              const custom = p.customFields || p.fields || {};
+                              let v = "";
+                              try {
+                                const obj = typeof custom === "string" ? JSON.parse(custom || "{}") : custom;
+                                v = obj?.[def.key] ?? "";
+                              } catch { v = ""; }
+                              return (
+                                <td key={def.key} className="whitespace-nowrap px-4 py-3 text-xs text-slate-700">
+                                  {String(v)}
+                                </td>
+                              );
+                            })}
                             <td className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-slate-900">
                               {(p.price * p.qty - (p.discount || 0) + (p.tax || 0)).toLocaleString("en-IN")}
                             </td>
@@ -2249,6 +2485,7 @@ async function ensureDealId() {
                               <div className="flex items-center gap-2">
                                 <button
                                   type="button"
+                                  onClick={() => openProductEdit(p)}
                                   className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-indigo-300 hover:text-indigo-700"
                                 >
                                   <Edit3 className="h-3.5 w-3.5" />
@@ -2336,9 +2573,9 @@ async function ensureDealId() {
               >
                 <div className="flex items-start justify-between border-b border-slate-200/80 px-5 py-4">
                   <div>
-                    <div className="text-sm font-semibold text-slate-900">Add Product</div>
+                    <div className="text-sm font-semibold text-slate-900">{editingDealProductId ? "Edit Product" : "Add Product"}</div>
                     <div className="mt-0.5 text-xs text-slate-500">
-                      Create a new product and configure pricing for this case
+                      {editingDealProductId ? "Update product details and pricing" : "Create a new product and configure pricing for this case"}
                     </div>
                   </div>
                   <button
@@ -2359,16 +2596,38 @@ async function ensureDealId() {
                     )}
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-700">Product Name</label>
-                      <input
-                        value={productForm.productName}
-                        onChange={(e) => {
-                          setProductForm((prev) => ({ ...prev, productName: e.target.value }));
-                          setProductFormError("");
-                        }}
-                        placeholder="Product name"
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-400"
-                      />
+                      <label className="block text-xs font-medium text-slate-700">Product (choose from catalog or create new)</label>
+                      <div className="mt-1 flex gap-2">
+                        <select
+                          value={productForm.productId || ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (!v) {
+                              // Create new
+                              setProductForm((prev) => ({ ...prev, productId: "", productName: "", productCode: "", basePrice: "", listPrice: "", quantity: "1", discount: "0", tax: "0" }));
+                              setEditingDealProductId(null);
+                              return;
+                            }
+                            handleSelectCatalogProduct(Number(v));
+                          }}
+                          className="w-2/3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                        >
+                          <option value="">{loadingCatalog ? "Loading..." : "-- Create new product --"}</option>
+                          {catalogProducts.map((cp) => (
+                            <option key={cp.id} value={cp.id}>
+                              {cp.name || cp.productName} {cp.code ? `(${cp.code})` : ""}
+                            </option>
+                          ))}
+                        </select>
+
+                        <input
+                          type="text"
+                          value={productForm.productName}
+                          onChange={(e) => setProductForm((prev) => ({ ...prev, productName: e.target.value, productId: "" }))}
+                          placeholder="Product name (for new product)"
+                          className="w-1/3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                        />
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -2459,6 +2718,22 @@ async function ensureDealId() {
                       </div>
                     </div>
 
+                    {productFieldDefs.length > 0 && (
+                      <div>
+                        <DynamicFieldsSection
+                          title="Product Custom Fields"
+                          definitions={productFieldDefs}
+                          values={productCustomValues[editingDealProductId || 'new'] || {}}
+                          onChange={(k, v) => {
+                            setProductCustomValues((prev) => {
+                              const key = editingDealProductId || 'new';
+                              return { ...prev, [key]: { ...(prev[key] || {}), [k]: v } };
+                            });
+                          }}
+                        />
+                      </div>
+                    )}
+
                     <div>
                       <label className="block text-xs font-medium text-slate-700">Final Amount (₹)</label>
                       <input
@@ -2487,7 +2762,7 @@ async function ensureDealId() {
                       onClick={saveProductFromModal}
                       className="rounded-full bg-gradient-to-r from-indigo-600 to-sky-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-500/40 transition hover:translate-y-[1px] hover:shadow-lg"
                     >
-                      Save Product
+                      {editingDealProductId ? "Update Product" : "Save Product"}
                     </button>
                   </div>
                 </div>
@@ -3152,6 +3427,12 @@ async function ensureDealId() {
               <form onSubmit={handleAddCase} className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-300">Case Name</label>
+                  <DynamicFieldsSection
+                    entity="client"
+                    entityId={selectedCustomer?.id}
+                    values={form.customFields}
+                    onChange={(values) => setForm({ ...form, customFields: values })}
+                  />
                   <input
                     type="text"
                     value={caseName}
@@ -3344,6 +3625,91 @@ async function ensureDealId() {
                 className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
               />
             </div>
+
+            {/* Address Section */}
+            <div className="border-t pt-4">
+              <h4 className="text-sm font-medium text-slate-900 mb-3">Address Information</h4>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
+                  <textarea
+                    value={customerEditForm.address || ""}
+                    onChange={(e) => setCustomerEditForm({...customerEditForm, address: e.target.value})}
+                    rows={3}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                  />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">City</label>
+                    <input
+                      type="text"
+                      value={customerEditForm.city || ""}
+                      onChange={(e) => setCustomerEditForm({...customerEditForm, city: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Pincode</label>
+                    <input
+                      type="text"
+                      value={customerEditForm.pincode || ""}
+                      onChange={(e) => setCustomerEditForm({...customerEditForm, pincode: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                    />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">State</label>
+                    <input
+                      type="text"
+                      value={customerEditForm.state || ""}
+                      onChange={(e) => setCustomerEditForm({...customerEditForm, state: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Country</label>
+                    <input
+                      type="text"
+                      value={customerEditForm.country || ""}
+                      onChange={(e) => setCustomerEditForm({...customerEditForm, country: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Contact Section */}
+            <div className="border-t pt-4">
+              <h4 className="text-sm font-medium text-slate-900 mb-3">Contact Information</h4>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Contact Name</label>
+                    <input
+                      type="text"
+                      value={customerEditForm.contactName || ""}
+                      onChange={(e) => setCustomerEditForm({...customerEditForm, contactName: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Contact Number</label>
+                    <input
+                      type="tel"
+                      value={customerEditForm.contactNumber || ""}
+                      onChange={(e) => setCustomerEditForm({...customerEditForm, contactNumber: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
             
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bank</label>
@@ -3359,16 +3725,6 @@ async function ensureDealId() {
                   </option>
                 ))}
               </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
-              <textarea
-                value={customerEditForm.address || ""}
-                onChange={(e) => setCustomerEditForm({...customerEditForm, address: e.target.value})}
-                rows={3}
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-              />
             </div>
           </div>
           

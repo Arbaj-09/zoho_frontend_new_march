@@ -3,13 +3,14 @@
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { backendApi } from "@/services/api";
+import { formApi } from "@/services/formApi";
+import { Plus, Search, Filter, Edit2, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function FormsPage() {
   const [forms, setForms] = useState([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const pageSize = 5; // Fixed to 5 records per page
 
   const [selectedIds, setSelectedIds] = useState([]);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -20,31 +21,56 @@ export default function FormsPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingForm, setEditingForm] = useState(null);
   const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [editSchema, setEditSchema] = useState("");
   const [editError, setEditError] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
+  const [loggedName, setLoggedName] = useState("-");
+
   const headerCheckboxRef = useRef(null);
 
-  /* -------------------- FILTERING -------------------- */
+  // Load user data after component mounts
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const userStr = localStorage.getItem("user_data") || "{}";
+        const user = JSON.parse(userStr);
+        setLoggedName(user?.fullName || "-");
+      } catch (e) {
+        setLoggedName("-");
+      }
+    }
+  }, []);
+
+  /* -------------------- FILTERING & SORTING -------------------- */
 
   const filteredForms = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return forms;
     return forms.filter(f =>
-      [f.name, f.schema].some(v =>
+      [f.name, f.description, f.clientName].some(v =>
         (v || "").toLowerCase().includes(term)
       )
     );
   }, [forms, search]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredForms.length / pageSize));
+  // Sort forms by createdAt descending (latest first)
+  const sortedForms = useMemo(() => {
+    return [...filteredForms].sort((a, b) => {
+      const d1 = new Date(a.createdAt || 0).getTime();
+      const d2 = new Date(b.createdAt || 0).getTime();
+      return d2 - d1; // latest first
+    });
+  }, [filteredForms]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedForms.length / pageSize));
   const currentPage = Math.min(page, totalPages);
 
   const pageItems = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return filteredForms.slice(start, start + pageSize);
-  }, [filteredForms, currentPage, pageSize]);
+    return sortedForms.slice(start, start + pageSize);
+  }, [sortedForms, currentPage, pageSize]);
 
   const allSelectedVisible =
     pageItems.length > 0 &&
@@ -60,6 +86,11 @@ export default function FormsPage() {
       headerCheckboxRef.current.indeterminate = someSelected;
     }
   }, [someSelected]);
+
+  // Reset page when search changes
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   /* -------------------- SELECTION -------------------- */
 
@@ -96,10 +127,11 @@ export default function FormsPage() {
     setIsDeleting(true);
     try {
       if (deleteMode === "single" && pendingDeleteId) {
-        await backendApi.delete(`/forms/${pendingDeleteId}`);
+        await formApi.delete(pendingDeleteId);
         setForms(prev => prev.filter(f => f.id !== pendingDeleteId));
       } else {
-        await backendApi.post("/forms/bulk-delete", selectedIds);
+        // Bulk delete
+        await Promise.all(selectedIds.map(id => formApi.delete(id)));
         setForms(prev => prev.filter(f => !selectedIds.includes(f.id)));
         setSelectedIds([]);
       }
@@ -112,20 +144,18 @@ export default function FormsPage() {
   };
 
   const openEditModal = async (id) => {
-    const dto = await backendApi.get(`/forms/${id}`);
-    setEditingForm(dto);
-    setEditName(dto.name);
-    setEditSchema(dto.schema);
-    setIsEditModalOpen(true);
+    // Navigate to edit form page instead of inline modal
+    window.location.href = `/form/${id}`;
   };
 
   const handleSaveEdit = async () => {
     if (!editName.trim()) return setEditError("Name required");
     setIsSavingEdit(true);
     try {
-      const updated = await backendApi.put(`/forms/${editingForm.id}`, {
+      const updated = await formApi.update(editingForm.id, {
         ...editingForm,
         name: editName,
+        description: editDescription,
         schema: editSchema,
       });
       setForms(prev =>
@@ -138,19 +168,64 @@ export default function FormsPage() {
   };
 
   const handleAddForm = async () => {
-    const created = await backendApi.post("/forms", {
-      name: "New Form",
-      schema: "{}",
-      isActive: true,
-    });
-    setForms(prev => [created, ...prev]);
+    // Navigate to create form page instead of creating inline
+    window.location.href = '/form/create';
   };
 
   useEffect(() => {
-    backendApi.get("/forms").then(setForms);
+    (async () => {
+      try {
+        const res = await formApi.list();
+        console.log("Loaded Forms:", res);
+        setForms(Array.isArray(res) ? res : (res?.data || []));
+      } catch (e) {
+        console.error("Forms load failed", e);
+        setForms([]);
+      }
+    })();
+  }, []);
+
+  // Refresh forms when page becomes visible (after navigation)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        (async () => {
+          try {
+            const res = await formApi.list();
+            console.log("Refreshed Forms:", res);
+            setForms(Array.isArray(res) ? res : (res?.data || []));
+          } catch (e) {
+            console.error("Forms refresh failed", e);
+          }
+        })();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
   /* -------------------- UI -------------------- */
+
+  // Format date function (safe for SSR)
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    if (typeof window === "undefined") return dateString; // Server-side fallback
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return dateString;
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -168,24 +243,25 @@ export default function FormsPage() {
             <div className="flex items-center gap-3">
               <input
                 value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                placeholder="Search here..."
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search forms..."
                 className="h-9 w-56 rounded-md border px-3 text-sm
                            focus:ring-1 focus:ring-blue-500"
               />
               <button className="h-9 w-9 rounded-md border flex items-center justify-center hover:bg-slate-100">
-                🔍
+                <Search className="h-4 w-4" />
+              </button>
+              <button className="h-9 w-9 rounded-md border flex items-center justify-center hover:bg-slate-100">
+                <Filter className="h-4 w-4" />
               </button>
             </div>
 
             <button
               onClick={handleAddForm}
-              className="h-9 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700"
+              className="h-9 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 flex items-center gap-2"
             >
-              + Add
+              <Plus className="h-4 w-4" />
+              Add
             </button>
           </div>
 
@@ -204,8 +280,10 @@ export default function FormsPage() {
                   </th>
                   <th className="px-4 py-3 text-left">Form Title</th>
                   <th className="px-4 py-3 text-left">Form Description</th>
-                  <th className="px-4 py-3 text-left">Last Modified</th>
+                  <th className="px-4 py-3 text-left">Client</th>
+                  <th className="px-4 py-3 text-left">Last Modified At</th>
                   <th className="px-4 py-3 text-left">Created At</th>
+                  <th className="px-4 py-3 text-left">Created By</th>
                   <th className="px-4 py-3 text-center">Action</th>
                 </tr>
               </thead>
@@ -227,13 +305,25 @@ export default function FormsPage() {
                         onChange={() => handleToggleRow(form.id)}
                       />
                     </td>
-                    <td className="px-4 py-3">{form.name}</td>
-                    <td className="px-4 py-3 truncate max-w-xs">{form.schema}</td>
-                    <td className="px-4 py-3">-</td>
-                    <td className="px-4 py-3">-</td>
+                    <td className="px-4 py-3 font-medium">{form.name}</td>
+                    <td className="px-4 py-3 truncate max-w-xs">{form.description || '-'}</td>
+                    <td className="px-4 py-3">{form.clientName || '-'}</td>
+                    <td className="px-4 py-3">{formatDate(form.updatedAt)}</td>
+                    <td className="px-4 py-3">{formatDate(form.createdAt)}</td>
+                    <td className="px-4 py-3">{form.createdByName ?? "-"}</td>
                     <td className="px-4 py-3 flex justify-center gap-3">
-                      <button onClick={() => openEditModal(form.id)}>✏️</button>
-                      <button onClick={() => openDeleteModal("single", form.id)}>🗑️</button>
+                      <button 
+                        onClick={() => openEditModal(form.id)}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                      <button 
+                        onClick={() => openDeleteModal("single", form.id)}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -244,21 +334,27 @@ export default function FormsPage() {
           {/* PAGINATION */}
           <div className="flex justify-between items-center px-4 py-3 border-t text-sm">
             <div>
-              Rows per page:
-              <select
-                className="ml-2 border rounded"
-                value={pageSize}
-                onChange={e => setPageSize(Number(e.target.value))}
-              >
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-              </select>
+              Showing {pageItems.length} of {sortedForms.length} forms
             </div>
 
-            <div className="flex gap-4">
-              <button disabled={page === 1} onClick={() => setPage(p => p - 1)}>◀</button>
-              <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>▶</button>
+            <div className="flex gap-2 items-center">
+              <button 
+                disabled={page === 1} 
+                onClick={() => setPage(p => p - 1)}
+                className="p-1 rounded hover:bg-slate-100 disabled:opacity-50"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="px-3 py-1">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button 
+                disabled={page === totalPages} 
+                onClick={() => setPage(p => p + 1)}
+                className="p-1 rounded hover:bg-slate-100 disabled:opacity-50"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
           </div>
         </motion.div>
@@ -267,9 +363,10 @@ export default function FormsPage() {
         {selectedIds.length > 0 && (
           <button
             onClick={() => openDeleteModal("bulk")}
-            className="fixed bottom-6 right-6 bg-red-600 text-white px-4 py-2 rounded-full shadow-lg"
+            className="fixed bottom-6 right-6 bg-red-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2"
           >
-            🗑️ Delete ({selectedIds.length})
+            <Trash2 className="h-4 w-4" />
+            Delete ({selectedIds.length})
           </button>
         )}
 
@@ -279,7 +376,7 @@ export default function FormsPage() {
             <motion.div className="fixed inset-0 bg-black/40 flex items-center justify-center">
               <div className="bg-white rounded-xl p-5 w-80">
                 <p className="mb-4 text-sm">
-                  Are you sure you want to delete?
+                  Are you sure you want to delete {deleteMode === "single" ? "this form" : `${selectedIds.length} forms`}?
                 </p>
                 <div className="flex justify-end gap-2">
                   <button onClick={closeDeleteModal}>Cancel</button>

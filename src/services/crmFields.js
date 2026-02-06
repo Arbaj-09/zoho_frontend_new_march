@@ -1,6 +1,10 @@
 import { backendApi } from "@/services/api";
 
 export const CRM_FIELD_ENTITY = {
+  client: {
+    definitionEndpoint: "/client-fields",
+    valuesEndpoint: (id) => `/clients/${id}/fields`,
+  },
   product: {
     definitionEndpoint: "/product-fields",
     valuesEndpoint: (id) => `/products/${id}/fields`,

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 
 import { backendApi } from "@/services/api";
+import { registerWebFcmToken } from "@/lib/web_push";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -153,6 +154,17 @@ export default function LoginPage() {
       if (response?.message === "Login successful" && response?.token) {
         localStorage.setItem("auth_token", response.token);
         localStorage.setItem("user_role", response.user?.role || "user");
+        localStorage.setItem("user_data", JSON.stringify(response.user));
+
+        try {
+          const employeeId = response.user?.id;
+          if (employeeId != null) {
+            await registerWebFcmToken({ employeeId });
+          }
+        } catch (_e) {
+          console.warn('FCM web token registration failed:', _e);
+        }
+
         toast.success("Login successful!");
         router.push("/");
       } else {

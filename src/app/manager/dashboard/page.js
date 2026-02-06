@@ -63,7 +63,6 @@ export default function ManagerDashboard() {
       header={{
         project: "Manager Dashboard",
         user: user ? { name: `${user.firstName} ${user.lastName}`, role: user.roleName } : { name: "Manager User", role: "Manager" },
-        notifications: [],
         tabs: [],
         activeTabKey: "dashboard"
       }}

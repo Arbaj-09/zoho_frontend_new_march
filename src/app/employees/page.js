@@ -11,6 +11,16 @@ export default function EmployeesPage() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [user] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const userData = localStorage.getItem("user_data");
+    if (!userData) return null;
+    try {
+      return JSON.parse(userData);
+    } catch (_e) {
+      return null;
+    }
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -68,7 +78,7 @@ export default function EmployeesPage() {
     <DashboardLayout
       header={{
         project: "Organization Management",
-        user: {
+        user: user ? { name: `${user.firstName} ${user.lastName}`, role: user.roleName } : {
           name: "Admin User",
           role: "Administrator"
         },

@@ -4,16 +4,20 @@ import { useState, useEffect } from "react";
 import { Settings } from "lucide-react";
 import DynamicFieldsModal from "./DynamicFieldsModal";
 
-export default function DynamicFieldsSection({ entity, entityId, values, onChange, showConfigure = true }) {
-  const [fields, setFields] = useState([]);
+export default function DynamicFieldsSection({ entity, entityId, values, onChange, showConfigure = true, definitions }) {
+  const [fields, setFields] = useState(definitions || []);
   const [showModal, setShowModal] = useState(false);
   const [fieldValues, setFieldValues] = useState(values || {});
 
   useEffect(() => {
-    if (entity) {
+    setFields(definitions || []);
+  }, [definitions]);
+
+  useEffect(() => {
+    if (!definitions && entity) {
       fetchFields();
     }
-  }, [entity]);
+  }, [entity, definitions]);
 
   useEffect(() => {
     setFieldValues(values || {});
@@ -21,7 +25,12 @@ export default function DynamicFieldsSection({ entity, entityId, values, onChang
 
   const fetchFields = async () => {
     try {
-      const response = await fetch(`http://localhost:8080/api/fields?entity=${entity}`);
+      // Use the correct endpoint for client field definitions
+      const endpoint = entity === 'client' 
+        ? 'http://localhost:8080/api/client-fields'
+        : `http://localhost:8080/api/fields?entity=${entity}`;
+      
+      const response = await fetch(endpoint);
       if (response.ok) {
         const data = await response.json();
         setFields(data);
@@ -32,7 +41,7 @@ export default function DynamicFieldsSection({ entity, entityId, values, onChang
   };
 
   const handleFieldValueChange = (fieldKey, value) => {
-    const newValues = { ...fieldValues, [fieldKey]: value };
+    const newValues = { ...(fieldValues || {}), [fieldKey]: value };
     setFieldValues(newValues);
     onChange?.(newValues);
   };

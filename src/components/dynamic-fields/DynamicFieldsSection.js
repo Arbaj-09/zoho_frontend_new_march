@@ -42,7 +42,10 @@ export default function DynamicFieldsSection({
                 <DynamicFieldInput
                   def={def}
                   value={v}
-                  onChange={(next) => onChange?.(key, next)}
+                  onChange={(next) => {
+                    const updated = { ...(values || {}), [key]: next };
+                    onChange?.(updated);
+                  }}
                 />
 
                 {def.required && (v == null || String(v).trim() === "") ? (
