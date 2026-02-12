@@ -77,6 +77,9 @@ export default function CustomerDetailPage() {
   const [customer, setCustomer] = useState(null);
   const [cases, setCases] = useState([]);
   const [caseName, setCaseName] = useState("");
+  const [form, setForm] = useState({
+    customFields: {}
+  });
   const [loadingCases, setLoadingCases] = useState(false);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
   const [error, setError] = useState(null);
@@ -384,6 +387,10 @@ export default function CustomerDetailPage() {
         const data = await backendApi.get(`/clients/${customerId}`);
         if (!isMounted) return;
         setCustomer(data);
+        // Sync form with customer custom fields
+        setForm({
+          customFields: data.customFields || {}
+        });
       } catch (err) {
         console.error("Failed to load customer", err);
         setError("Failed to load customer: " + err.message);
@@ -3429,9 +3436,14 @@ async function ensureDealId() {
                   <label className="block text-xs font-medium text-slate-300">Case Name</label>
                   <DynamicFieldsSection
                     entity="client"
-                    entityId={selectedCustomer?.id}
-                    values={form.customFields}
-                    onChange={(values) => setForm({ ...form, customFields: values })}
+                    entityId={safeCustomer?.id}
+                    values={form?.customFields || {}}
+                    onChange={(values) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        customFields: values
+                      }))
+                    }
                   />
                   <input
                     type="text"

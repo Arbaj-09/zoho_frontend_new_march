@@ -1,7 +1,8 @@
 import "./globals.css";
-import "react-toastify/dist/ReactToastify.css";
-import { ToastContainer } from "react-toastify";
 import WebSocketProvider from "../components/WebSocketProvider";
+import ToastProvider from "../components/common/ToastProvider";
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 // Use local system fonts instead of Google Fonts
 const geistSans = {
@@ -24,20 +25,22 @@ export default function RootLayout({ children }) {
         className={`${geistSans.className} ${geistMono.className} antialiased bg-slate-50 text-slate-900`}
       >
         <WebSocketProvider>
-          {children}
-          <ToastContainer
-            position="top-right"
-            autoClose={3000}
-            hideProgressBar={false}
-            newestOnTop={false}
-            closeOnClick
-            rtl={false}
-            pauseOnFocusLoss
-            draggable
-            pauseOnHover
-            theme="light"
-          />
+          <ToastProvider>
+            {children}
+          </ToastProvider>
         </WebSocketProvider>
+        <ToastContainer 
+          position="top-right" 
+          autoClose={3000}
+          hideProgressBar={false}
+          newestOnTop={false}
+          closeOnClick
+          rtl={false}
+          pauseOnFocusLoss
+          draggable
+          pauseOnHover
+          theme="light"
+        />
       </body>
     </html>
   );

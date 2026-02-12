@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { taskApi, taskEmployeesApi, taskCustomFieldsApi } from "@/services/taskApi";
 import { Plus, Search, Filter, Calendar, Download, Edit2, Trash2, User, Clock, MapPin } from "lucide-react";
+import { toast } from 'react-toastify';
 
 // Safe date formatting function to prevent hydration issues
 const formatDate = (dateString) => {
@@ -227,7 +228,7 @@ export default function TasksManagementContent() {
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Task Name</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Client</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Address</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Customer Location</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Start Time</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">End Time</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Assigned To</th>
@@ -243,7 +244,7 @@ export default function TasksManagementContent() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{task.taskName || '-'}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{task.clientName || '-'}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 max-w-xs truncate">{task.address || '-'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 max-w-xs truncate">{task.address || task.customerAddress?.addressLine || '-'}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
                             {formatDate(task.scheduledStartTime)}
                           </td>
@@ -538,6 +539,39 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
     }
   };
 
+  const fetchCustomerAddresses = async (clientId) => {
+    try {
+      const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
+      const response = await fetch(`${API_BASE_URL}/api/clients/${clientId}/addresses`);
+      const data = await response.json();
+      
+      // Transform addresses to dropdown format
+      const addressOptions = data.map(addr => ({
+        id: addr.id,
+        label: `${addr.addressType}: ${addr.addressLine}, ${addr.city || ''}`,
+        isPrimary: addr.isPrimary
+      }));
+      
+      // Sort: Primary address first, then others
+      addressOptions.sort((a, b) => {
+        if (a.isPrimary && !b.isPrimary) return -1;
+        if (!a.isPrimary && b.isPrimary) return 1;
+        return 0;
+      });
+      
+      setCustomerAddresses(addressOptions);
+      
+      // Auto-select primary address if available
+      const primaryAddress = addressOptions.find(addr => addr.isPrimary);
+      if (primaryAddress) {
+        setFormData(prev => ({ ...prev, customerAddressId: primaryAddress.id }));
+      }
+    } catch (error) {
+      console.error("Failed to fetch customer addresses:", error);
+      setCustomerAddresses([]);
+    }
+  };
+
   const fetchCustomFields = async (taskType) => {
     try {
       const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
@@ -600,7 +634,7 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
       fetchCustomFields(formData.customTaskType);
     } catch (err) {
       console.error(err);
-      alert("Failed to create custom field");
+      toast.error("Failed to create custom field");
     }
   };
 
@@ -612,7 +646,7 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
       const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
 
       if (!formData.customerAddressId) {
-        alert("Customer location is required. Please select a customer address with coordinates.");
+        toast.error("Customer location is required. Please select a customer address with coordinates.");
         return;
       }
       
@@ -663,13 +697,14 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
       if (response.ok) {
         const savedTask = await response.json();
         console.log("✅ Saved task response:", savedTask);
+        toast.success(task ? "Task updated successfully" : "Task created successfully");
         onSave(savedTask);
       } else {
         throw new Error('Failed to save task');
       }
     } catch (error) {
       console.error("Failed to save task:", error);
-      alert("Failed to save task. Please try again.");
+      toast.error("Failed to save task. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -810,7 +845,16 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
               <select
                 name="customerAddressId"
                 value={formData.customerAddressId}
-                onChange={handleInputChange}
+                onChange={(e) => {
+                  const selectedId = e.target.value;
+                  const selectedAddress = customerAddresses.find(a => String(a.id) === selectedId);
+
+                  setFormData(prev => ({
+                    ...prev,
+                    customerAddressId: selectedId,
+                    address: selectedAddress?.label || ""
+                  }));
+                }}
                 required
                 disabled={!formData.clientId}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-slate-100"
@@ -818,7 +862,7 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
                 <option value="">{formData.clientId ? "Select customer location" : "Select a client first"}</option>
                 {customerAddresses.map(addr => (
                   <option key={addr.id} value={addr.id}>
-                    {addr.addressText || addr.fullAddress || `Address ID: ${addr.id}`}
+                    {addr.label}
                   </option>
                 ))}
               </select>
@@ -828,16 +872,22 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
           {/* Status */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              Address
+              Task Status <span className="text-red-500">*</span>
             </label>
-            <textarea
-              name="address"
-              value={formData.address}
+            <select
+              name="status"
+              value={formData.status}
               onChange={handleInputChange}
-              rows={3}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="Enter task address"
-            />
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              required
+            >
+              <option value="">Select Status</option>
+              <option value="INQUIRY">Inquiry</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="DELAYED">Delayed</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
           </div>
 
           {/* Scheduling */}
@@ -895,30 +945,6 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-indigo-500"
                 />
               </div>
-            </div>
-          </div>
-
-          {/* Status */}
-          <div className="border-t border-slate-200 pt-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Status</h3>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Task Status <span className="text-red-500">*</span>
-              </label>
-              <select
-                name="status"
-                value={formData.status}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                required
-              >
-                <option value="">Select Status</option>
-                <option value="INQUIRY">Inquiry</option>
-                <option value="IN_PROGRESS">In Progress</option>
-                <option value="COMPLETED">Completed</option>
-                <option value="DELAYED">Delayed</option>
-                <option value="CANCELLED">Cancelled</option>
-              </select>
             </div>
           </div>
 

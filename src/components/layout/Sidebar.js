@@ -22,6 +22,7 @@ import {
   Users,
   Calendar,
   Plus,
+  FileText,
 } from "lucide-react";
 
 import { cn } from "@/utils/helpers";
@@ -54,6 +55,8 @@ function NavIcon({ name, className }) {
       ? ShoppingBag
       : name === "expenses"
       ? CreditCard
+      : name === "invoice"
+      ? FileText
       : name === "client"
       ? Users
       : name === "reports"
@@ -169,6 +172,22 @@ export default function Sidebar({
         active:
           "bg-gradient-to-r from-teal-600/12 via-teal-600/8 to-transparent text-teal-700",
         rail: "bg-teal-500",
+      },
+      green: {
+        icon: "text-green-600",
+        hoverIcon: "group-hover:text-green-600",
+        hover: "hover:bg-green-50/70",
+        active:
+          "bg-gradient-to-r from-green-600/12 via-green-600/8 to-transparent text-green-700",
+        rail: "bg-green-500",
+      },
+      purple: {
+        icon: "text-purple-600",
+        hoverIcon: "group-hover:text-purple-600",
+        hover: "hover:bg-purple-50/70",
+        active:
+          "bg-gradient-to-r from-purple-600/12 via-purple-600/8 to-transparent text-purple-700",
+        rail: "bg-purple-500",
       },
     }),
     []

@@ -17,7 +17,7 @@ export function createApiClient({ baseUrl = "" } = {}) {
       method,
       headers: {
         Accept: "application/json",
-        "Content-Type": body ? "application/json" : undefined,
+        "Content-Type": "application/json",
         // Add authorization header if token exists
         ...(token && { Authorization: `Bearer ${token}` }),
         ...(userId != null && { "X-User-Id": String(userId) }),
@@ -78,7 +78,7 @@ export function createApiClient({ baseUrl = "" } = {}) {
   return { get, post, put, delete: del };
 }
 
-export const backendApi = createApiClient({ baseUrl: "http://192.168.1.100:8080/api" });
+export const backendApi = createApiClient({ baseUrl: "http://localhost:8080/api" });
 
 export function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

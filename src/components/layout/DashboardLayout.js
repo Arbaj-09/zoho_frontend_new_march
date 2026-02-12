@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { toast } from "react-toastify";
+import { toast, ToastContainer } from "react-toastify";
 import { Menu, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import "react-toastify/dist/ReactToastify.css";
 
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
@@ -32,6 +33,14 @@ const sidebarSections = [
       { key: "unolo-order", label: "Order", href: "/order", icon: "order", accent: "orange" },
       { key: "unolo-sites", label: "Sites", href: "/sites", icon: "sites", accent: "lime" },
       { key: "tasks", label: "Tasks", href: "/tasks", icon: "tasks", accent: "indigo" },
+    ],
+  },
+  {
+    key: "expenses",
+    label: "Expenses",
+    items: [
+      { key: "expenses-overview", label: "Overview", href: "/expenses", icon: "dashboard", accent: "green" },
+      { key: "expenses-invoices", label: "Invoices", href: "/expenses/invoices", icon: "invoice", accent: "purple" },
     ],
   },
 ];
@@ -155,6 +164,20 @@ export default function DashboardLayout({ header, children }) {
           <div className="min-h-screen pb-20">{children}</div>
         </main>
       </div>
+      
+      {/* 🎯 Toast Notifications */}
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="light"
+      />
     </div>
   );
 }
