@@ -1240,11 +1240,8 @@ export default function CustomerDetailPage() {
 
 
 
-  const [isTaskCreateOpen, setIsTaskCreateOpen] = useState(false);
-
-  const [isEventCreateOpen, setIsEventCreateOpen] = useState(false);
-
-  const [isCallCreateOpen, setIsCallCreateOpen] = useState(false);
+  // ✅ FIX: Single source of truth for drawer state (only ONE can be open)
+  const [activeDrawer, setActiveDrawer] = useState(null); // values: null | "task" | "event" | "call"
 
 
 
@@ -1860,7 +1857,7 @@ export default function CustomerDetailPage() {
 
     setTaskForm((prev) => ({ ...prev, relatedTo: prev.relatedTo || safeCustomer.name }));
 
-    setIsTaskCreateOpen(true);
+    setActiveDrawer("task");
 
   }
 
@@ -1882,7 +1879,7 @@ export default function CustomerDetailPage() {
       description: "",
     });
 
-    setIsEventCreateOpen(true);
+    setActiveDrawer("event");
 
   }
 
@@ -1903,7 +1900,7 @@ export default function CustomerDetailPage() {
       duration: "",
     });
 
-    setIsCallCreateOpen(true);
+    setActiveDrawer("call");
 
   }
 
@@ -1933,7 +1930,7 @@ export default function CustomerDetailPage() {
 
     }));
 
-    setIsTaskCreateOpen(true);
+    setActiveDrawer("task");
 
   }
 
@@ -1944,6 +1941,8 @@ export default function CustomerDetailPage() {
     if (!e?.id) return;
 
     setEditingEventId(e.id);
+
+    setActiveDrawer("event");
 
     setEventForm((prev) => ({
 
@@ -1965,8 +1964,6 @@ export default function CustomerDetailPage() {
 
     }));
 
-    setIsEventCreateOpen(true);
-
   }
 
 
@@ -1974,6 +1971,8 @@ export default function CustomerDetailPage() {
   function openCallEdit(c) {
 
     if (!c?.id) return;
+
+    setActiveDrawer("call");
 
     setEditingCallId(c.id);
 
@@ -1994,8 +1993,6 @@ export default function CustomerDetailPage() {
       relatedTo: safeCustomer.name,
 
     }));
-
-    setIsCallCreateOpen(true);
 
   }
 
@@ -2031,7 +2028,9 @@ export default function CustomerDetailPage() {
 
   function closeTaskCreate() {
 
-    setIsTaskCreateOpen(false);
+    setActiveDrawer(null);
+
+    setEditingTaskId(null);
 
   }
 
@@ -2039,7 +2038,7 @@ export default function CustomerDetailPage() {
 
   function closeEventCreate() {
 
-    setIsEventCreateOpen(false);
+    setActiveDrawer(null);
     setEditingEventId(null);
     setEventForm({
       title: "",
@@ -2058,7 +2057,7 @@ export default function CustomerDetailPage() {
 
 
   function closeCallCreate() {
-    setIsCallCreateOpen(false);
+    setActiveDrawer(null);
     setEditingCallId(null);
     setCallForm({
       toFrom: "",
@@ -5663,35 +5662,24 @@ async function ensureDealId() {
 
 
 
-        {(isTaskCreateOpen || isEventCreateOpen || isCallCreateOpen) && (
+        {/* ✅ FIX: Single backdrop for any open drawer */}
+        {activeDrawer && (
 
           <div
 
             className="fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-[2px]"
 
-            onClick={() => {
-
-              closeTaskCreate();
-
-              closeEventCreate();
-
-              closeCallCreate();
-
-            }}
-
+            onClick={() => setActiveDrawer(null)}
           />
 
         )}
 
 
 
+        {/* ✅ FIX: Task drawer - only renders when activeDrawer === 'task' */}
+        {activeDrawer === "task" && (
         <div
-
-          className={`fixed inset-y-0 right-0 z-[70] w-full max-w-[460px] transform bg-white shadow-2xl shadow-slate-900/30 transition-transform duration-300 ease-out ${
-
-            isTaskCreateOpen ? "translate-x-0" : "translate-x-full"
-
-          }`}
+          className="fixed inset-y-0 right-0 z-[70] w-full max-w-[460px] transform bg-white shadow-2xl shadow-slate-900/30 transition-transform duration-300 ease-out translate-x-0"
 
           onClick={(e) => e.stopPropagation()}
 
@@ -6019,15 +6007,15 @@ async function ensureDealId() {
 
         </div>
 
+        )}
 
 
+
+        {/* ✅ FIX: Event drawer - only renders when activeDrawer === 'event' */}
+        {activeDrawer === "event" && (
         <div
 
-          className={`fixed inset-y-0 right-0 z-[70] w-full max-w-[460px] transform bg-white shadow-2xl shadow-slate-900/30 transition-transform duration-300 ease-out ${
-
-            isEventCreateOpen ? "translate-x-0" : "translate-x-full"
-
-          }`}
+          className="fixed inset-y-0 right-0 z-[70] w-full max-w-[460px] transform bg-white shadow-2xl shadow-slate-900/30 transition-transform duration-300 ease-out translate-x-0"
 
           onClick={(e) => e.stopPropagation()}
 
@@ -6325,9 +6313,12 @@ async function ensureDealId() {
 
         </div>
 
+        )}
 
 
-        {isCallCreateOpen && (
+
+        {/* ✅ FIX: Call drawer - only renders when activeDrawer === 'call' */}
+        {activeDrawer === "call" && (
         <div
           className="fixed inset-y-0 right-0 z-[70] w-full max-w-[460px] transform bg-white shadow-2xl shadow-slate-900/30 transition-transform duration-300 ease-out translate-x-0"
           onClick={(e) => e.stopPropagation()}
