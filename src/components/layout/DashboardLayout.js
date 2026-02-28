@@ -58,12 +58,32 @@ export default function DashboardLayout({ header, children }) {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // ✅ Get user role from localStorage
+  const [userRole, setUserRole] = useState(null);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const role = localStorage.getItem("user_role");
+      setUserRole(role);
+    }
+  }, []);
+
   // ✅ disable background scroll when menu open
   useEffect(() => {
     if (typeof window === "undefined") return;
     document.body.style.overflow = mobileMenuOpen ? "hidden" : "";
     return () => (document.body.style.overflow = "");
   }, [mobileMenuOpen]);
+
+  // ✅ Filter sidebar sections: remove Dashboard from Unolo if role is "TL"
+  const filteredSections = sidebarSections.map((section) => {
+    if (section.key === "unolo" && userRole === "TL") {
+      return {
+        ...section,
+        items: section.items.filter((item) => item.key !== "unolo-dashboard"),
+      };
+    }
+    return section;
+  });
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
@@ -130,7 +150,7 @@ export default function DashboardLayout({ header, children }) {
                 </button>
 
                 <Sidebar
-                  sections={sidebarSections}
+                  sections={filteredSections}
                   brand="Yash"
                   activeKey={getActiveKey()}
                   onLogout={handleLogout}
@@ -145,7 +165,7 @@ export default function DashboardLayout({ header, children }) {
       {/* ✅ Desktop Sidebar: md mini + lg full */}
       <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-[100dvh] md:z-20">
         <Sidebar
-          sections={sidebarSections}
+          sections={filteredSections}
           brand="Yash"
           activeKey={getActiveKey()}
           onLogout={handleLogout}
