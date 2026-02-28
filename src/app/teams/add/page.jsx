@@ -5,9 +5,14 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useRouter } from 'next/navigation';
 import { backendApi } from '@/services/api';
 import { ArrowLeft, Save, Users, UserPlus, Building2 } from 'lucide-react';
+import { getCurrentUserName, getCurrentUserRole } from '@/utils/userUtils';
 
 export default function AddTeam() {
   const router = useRouter();
+  
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -93,8 +98,8 @@ export default function AddTeam() {
       header={{
         project: "Organization Management",
         user: {
-          name: "Admin User",
-          role: "Administrator"
+          name: userName,
+          role: userRole
         },
         notifications: [],
         tabs: [

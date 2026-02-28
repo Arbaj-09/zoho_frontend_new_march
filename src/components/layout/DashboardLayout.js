@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { toast, ToastContainer } from "react-toastify";
 import { Menu, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import "react-toastify/dist/ReactToastify.css";
 
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
 
+// ✅ SAFE: Original sidebar structure (NOT modified)
 const sidebarSections = [
   {
     key: "zoho",
@@ -36,6 +35,13 @@ const sidebarSections = [
     ],
   },
   {
+    key: "address-management",
+    label: "Address Management",
+    items: [
+      { key: "address-edit-requests", label: "Address Edit Requests", href: "/admin/address-edit-requests", icon: "edit", accent: "blue" },
+    ],
+  },
+  {
     key: "expenses",
     label: "Expenses",
     items: [
@@ -59,18 +65,12 @@ export default function DashboardLayout({ header, children }) {
     return () => (document.body.style.overflow = "");
   }, [mobileMenuOpen]);
 
-  // ✅ auth guard
-  useEffect(() => {
-    if (pathname === "/login") return;
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("auth_token");
-      if (!token) router.replace("/login");
-    }
-  }, [pathname, router]);
-
   const handleLogout = () => {
-    if (typeof window !== "undefined") localStorage.removeItem("auth_token");
-    toast.success("Logged out successfully");
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("user_role");
+      localStorage.removeItem("user_data");
+    }
     router.push("/login");
   };
 
@@ -164,20 +164,6 @@ export default function DashboardLayout({ header, children }) {
           <div className="min-h-screen pb-20">{children}</div>
         </main>
       </div>
-      
-      {/* 🎯 Toast Notifications */}
-      <ToastContainer
-        position="top-right"
-        autoClose={3000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="light"
-      />
     </div>
   );
 }

@@ -5,10 +5,15 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { backendApi } from "@/services/api";
+import { getCurrentUserName, getCurrentUserRole } from "@/utils/userUtils";
 
 export default function CaseDetailModalPage() {
   const params = useParams();
   const router = useRouter();
+
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
 
   const customerId = params?.id;
   const caseId = params?.caseId;
@@ -135,7 +140,7 @@ export default function CaseDetailModalPage() {
     <DashboardLayout
       header={{
         project: "Case Details",
-        user: { name: "Admin User", role: "Administrator" },
+        user: { name: userName, role: userRole },
         notifications: [],
       }}
     >

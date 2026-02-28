@@ -130,7 +130,7 @@ export const invoiceService = {
       const response = await fetch(`http://localhost:8080/api/invoices/${id}/pdf`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`,
           'X-User-Id': (() => {
             if (typeof window === 'undefined') return null;
             try {

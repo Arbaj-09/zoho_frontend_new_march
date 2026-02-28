@@ -5,22 +5,14 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Pencil, Trash2, Plus, Search, Eye, UserPlus, MoreVertical } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { backendApi } from '@/services/api';
+import { getCurrentUserName, getCurrentUserRole } from '@/utils/userUtils';
 
 export default function EmployeesPage() {
   const router = useRouter();
-  const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [user] = useState(() => {
-    if (typeof window === "undefined") return null;
-    const userData = localStorage.getItem("user_data");
-    if (!userData) return null;
-    try {
-      return JSON.parse(userData);
-    } catch (_e) {
-      return null;
-    }
-  });
+  
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
 
   useEffect(() => {
     let isMounted = true;
@@ -78,9 +70,9 @@ export default function EmployeesPage() {
     <DashboardLayout
       header={{
         project: "Organization Management",
-        user: user ? { name: `${user.firstName} ${user.lastName}`, role: user.roleName } : {
-          name: "Admin User",
-          role: "Administrator"
+        user: {
+          name: userName,
+          role: userRole
         },
         notifications: [],
         tabs: [

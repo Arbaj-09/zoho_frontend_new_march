@@ -2,13 +2,17 @@
 
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import Link from "next/link";
+import { getCurrentUserName, getCurrentUserRole } from "@/utils/userUtils";
 
 export default function FieldSettingsIndex() {
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
   return (
     <DashboardLayout
       header={{
         project: "Field Settings",
-        user: { name: "Admin User", role: "Administrator" },
+        user: { name: userName, role: userRole },
         notifications: [],
       }}
     >

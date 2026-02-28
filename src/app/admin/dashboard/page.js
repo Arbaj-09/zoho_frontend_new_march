@@ -6,6 +6,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Users, Building2, TrendingUp, Calendar, Activity, Settings, LogOut, Menu, Smartphone, Bell, Wifi, WifiOff } from 'lucide-react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import EnhancedToast from '@/components/EnhancedToast';
+import { getCurrentUserName, getCurrentUserRole } from '@/utils/userUtils';
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -21,6 +22,10 @@ export default function AdminDashboard() {
   const [toastType, setToastType] = useState('info');
   
   const { isConnected, subscribeToAttendanceEvents, subscribeToTaskEvents, subscribeToPunchEvents } = useWebSocket();
+
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
 
   // Listen for real-time events
   useEffect(() => {
@@ -204,7 +209,7 @@ export default function AdminDashboard() {
     <DashboardLayout
       header={{
         project: "Admin Dashboard",
-        user: user ? { name: `${user.firstName} ${user.lastName}`, role: user.roleName } : { name: "Admin User", role: "Administrator" },
+        user: { name: userName, role: userRole },
         tabs: [],
         activeTabKey: "dashboard"
       }}
@@ -216,7 +221,7 @@ export default function AdminDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">
-                  Welcome back, {user?.firstName || 'Admin'}! 👋
+                  Welcome back, {userName.split(' ')[0] || 'Admin'}! 👋
                 </h1>
                 <p className="text-gray-600 mt-2">
                   Here&apos;s what&apos;s happening with your organization today

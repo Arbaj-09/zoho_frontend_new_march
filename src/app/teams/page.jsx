@@ -6,9 +6,14 @@ import { Pencil, Trash2, Plus, Search, Users, UserPlus, Eye } from 'lucide-react
 import { useRouter } from 'next/navigation';
 import { backendApi } from '@/services/api';
 import { toast } from 'react-toastify';
+import { getCurrentUserName, getCurrentUserRole } from '@/utils/userUtils';
 
 export default function TeamsPage() {
   const router = useRouter();
+  
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -103,8 +108,8 @@ export default function TeamsPage() {
       header={{
         project: "Organization Management",
         user: {
-          name: "Admin User",
-          role: "Administrator"
+          name: userName,
+          role: userRole
         },
         notifications: [],
         tabs: [

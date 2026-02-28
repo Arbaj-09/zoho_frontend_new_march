@@ -5,7 +5,14 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { backendApi } from "@/services/api";
 
 // For now, use a fixed employeeId (e.g. 1). Later this can come from auth/user context.
-const EMPLOYEE_ID = 1;
+// ✅ FIXED: Use dynamic user ID from localStorage
+const EMPLOYEE_ID = (() => {
+  if (typeof window !== "undefined") {
+    const userData = JSON.parse(localStorage.getItem("user_data") || "{}");
+    return userData.id || 1;
+  }
+  return 1;
+})();
 
 function formatDate(date) {
   return date.toISOString().slice(0, 10);

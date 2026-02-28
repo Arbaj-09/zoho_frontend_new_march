@@ -1,8 +1,11 @@
 import "./globals.css";
 import WebSocketProvider from "../components/WebSocketProvider";
 import ToastProvider from "../components/common/ToastProvider";
-import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import AuthGuard from "../components/auth/AuthGuard";
+import ToastContainerClient from "../components/common/ToastContainerClient";
+import { CustomerAddressProvider } from "../context/CustomerAddressContext";
+import { StageProvider } from "../context/StageContext";
+import "react-toastify/dist/ReactToastify.css";
 
 // Use local system fonts instead of Google Fonts
 const geistSans = {
@@ -26,21 +29,16 @@ export default function RootLayout({ children }) {
       >
         <WebSocketProvider>
           <ToastProvider>
-            {children}
+            <CustomerAddressProvider>
+              <StageProvider>
+                <AuthGuard>
+                  {children}
+                </AuthGuard>
+              </StageProvider>
+            </CustomerAddressProvider>
           </ToastProvider>
         </WebSocketProvider>
-        <ToastContainer 
-          position="top-right" 
-          autoClose={3000}
-          hideProgressBar={false}
-          newestOnTop={false}
-          closeOnClick
-          rtl={false}
-          pauseOnFocusLoss
-          draggable
-          pauseOnHover
-          theme="light"
-        />
+        <ToastContainerClient />
       </body>
     </html>
   );

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { backendApi } from "@/services/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import DynamicFieldsSection from "@/components/dynamic-fields/DynamicFieldsSection";
-import { getLoggedInUser } from "@/hooks/useLoggedInUser";
+import { getCurrentUserName, getCurrentUserRole, getCurrentUserId } from "@/utils/userUtils";
 import {
   fetchFieldDefinitions,
   fetchFieldValues,
@@ -17,7 +17,11 @@ import {
 import { toast } from "react-toastify";
 
 export default function DealsPage() {
-  const userData = getLoggedInUser();
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
+  const userId = getCurrentUserId();
+  const userData = { id: userId, name: userName, role: userRole };
   const [deals, setDeals] = useState([]);
   const [clients, setClients] = useState([]);
   const [banks, setBanks] = useState([]);

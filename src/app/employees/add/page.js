@@ -5,9 +5,14 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { ArrowLeft, Save, X, User, Mail, Phone, Calendar, MapPin, Building2, Shield, Users } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { backendApi } from '@/services/api';
+import { getCurrentUserName, getCurrentUserRole } from '@/utils/userUtils';
 
 export default function AddEmployeePage({ onSuccess, isModal = false, editingEmployee }) {
   const router = useRouter();
+  
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -15,6 +20,7 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
   const [managers, setManagers] = useState([]);
   const [teams, setTeams] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [allDepartments, setAllDepartments] = useState([]); // ✅ ADDED: Store all departments for mapping
   const [designations, setDesignations] = useState([]);
 
   const [formData, setFormData] = useState({
@@ -72,20 +78,69 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
 
   const [formErrors, setFormErrors] = useState({});
   const [step, setStep] = useState(1);
-  const totalSteps = 3;
+  const [isSubmitted, setIsSubmitted] = useState(false); // ✅ PROFESSIONAL: Track submit attempts only
+  const totalSteps = 2;
 
   useEffect(() => {
     fetchDropdownData();
   }, []);
+
+  // ✅ ROLE-BASED: Use different department sources based on role
+  useEffect(() => {
+    const selectedRole = roles.find(r => r.id === parseInt(formData.roleId));
+    const roleName = selectedRole?.name;
+    
+    if (roleName === 'TL') {
+      // 🔥 RESET departmentId when switching to TL to avoid old object values
+      setFormData(prev => ({
+        ...prev,
+        departmentId: ''
+      }));
+      
+      // For TL, fetch departments from stages API (string values)
+      backendApi.get('/stages/departments').then((stagesDepartments) => {
+        const cleanDepartments = (stagesDepartments || [])
+          .map(dept => {
+            // If API accidentally sends objects, extract name safely
+            if (typeof dept === 'string') return dept.trim();
+            if (typeof dept === 'object' && dept !== null) {
+              return (dept.name || dept.department || '').trim();
+            }
+            return '';
+          })
+          .filter(Boolean); // remove empty strings
+
+        setDepartments(cleanDepartments);
+        
+        // Also fetch all departments for mapping to departmentId
+        if (!allDepartments.length) {
+          backendApi.get('/departments').then(allDepts => {
+            setAllDepartments(allDepts || []);
+          }).catch(() => {
+            setAllDepartments([]);
+          });
+        }
+      }).catch(() => {
+        setDepartments([]);
+      });
+    } else {
+      // For non-TL roles, fetch from departments API (existing behavior)
+      backendApi.get('/departments').then(departmentsData => {
+        setDepartments(departmentsData || []);
+      }).catch(() => {
+        setDepartments([]);
+      });
+    }
+  }, [formData.roleId, roles, allDepartments.length]);
 
   const fetchDropdownData = async () => {
     try {
       setLoading(true);
       
       // Fetch all dropdown data in parallel with error handling
-      const [rolesData, employeesData, teamsData, departmentsData, designationsData, nextIdData] = await Promise.allSettled([
+      const [rolesData, managersData, teamsData, departmentsData, designationsData, nextIdData] = await Promise.allSettled([
         backendApi.get('/roles'),
-        backendApi.get('/employees'),
+        backendApi.get('/employees/managers'), // ✅ FIXED: Fetch only managers
         backendApi.get('/teams'),
         backendApi.get('/departments').catch(() => []), // Handle missing departments endpoint
         backendApi.get('/designations'),
@@ -94,8 +149,8 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
 
       setRoles(rolesData.status === 'fulfilled' ? rolesData.value : []);
       
-      // Show all employees as potential reporting managers
-      const managerEmployees = employeesData.status === 'fulfilled' ? employeesData.value || [] : [];
+      // ✅ FIXED: Show only managers as potential reporting managers
+      const managerEmployees = managersData.status === 'fulfilled' ? managersData.value || [] : [];
       setManagers(managerEmployees);
       
       setTeams(teamsData.status === 'fulfilled' ? teamsData.value : []);
@@ -172,54 +227,14 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
   // Populate form with editingEmployee data when available
   useEffect(() => {
     if (editingEmployee) {
-      setFormData({
-        firstName: editingEmployee.firstName || '',
-        lastName: editingEmployee.lastName || '',
-        email: editingEmployee.email || '',
-        phone: editingEmployee.phone || '',
-        employeeId: editingEmployee.employeeId || '',
-        employeeCode: editingEmployee.employeeCode || '',
-        roleId: editingEmployee.roleId || '',
-        reportingManagerId: editingEmployee.reportingManagerId || '',
-        teamId: editingEmployee.teamId || '',
-        departmentId: editingEmployee.departmentId || '',
-        designationId: editingEmployee.designationId || '',
-        status: editingEmployee.status || 'active',
-        attendanceAllowed: editingEmployee.attendanceAllowed !== undefined ? editingEmployee.attendanceAllowed : true,
-        hiredAt: editingEmployee.hiredAt || '',
-        organizationId: editingEmployee.organizationId || 1,
-        profileImage: null,
-        profileImageBase64: '',
-        // Additional professional fields
-        dateOfBirth: editingEmployee.dateOfBirth || '',
-        gender: editingEmployee.gender || '',
-        bloodGroup: editingEmployee.bloodGroup || '',
-        emergencyContact: editingEmployee.emergencyContact || '',
-        emergencyPhone: editingEmployee.emergencyPhone || '',
-        address: editingEmployee.address || '',
-        city: editingEmployee.city || '',
-        state: editingEmployee.state || '',
-        pincode: editingEmployee.pincode || '',
-        country: editingEmployee.country || '',
-        workEmail: editingEmployee.workEmail || '',
-        personalEmail: editingEmployee.personalEmail || '',
-        skills: editingEmployee.skills || '',
-        experience: editingEmployee.experience || '',
-        certifications: editingEmployee.certifications || '',
-        education: editingEmployee.education || '',
-        notes: editingEmployee.notes || '',
-        leavePolicy: editingEmployee.leavePolicy || '',
-        holidayPlan: editingEmployee.holidayPlan || '',
-        baseSite: editingEmployee.baseSite || '',
-        sitePool: editingEmployee.sitePool || '',
-        attendanceRestriction: editingEmployee.attendanceRestriction || '',
-        inOutNotification: editingEmployee.inOutNotification || '',
-        workRestriction: editingEmployee.workRestriction || '',
-        defaultTransport: editingEmployee.defaultTransport || '',
-        // Custom fields for "Other" options
-        customTeam: editingEmployee.customTeam || '',
-        customDesignation: editingEmployee.customDesignation || ''
-      });
+      setFormData(prev => ({
+        ...prev,
+        ...editingEmployee,
+        profileImage: editingEmployee.profileImageUrl
+          ? `http://localhost:8080${editingEmployee.profileImageUrl}` 
+          : null,
+        profileImageBase64: ''
+      }));
     }
   }, [editingEmployee]);
 
@@ -227,10 +242,9 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
     const errors = {};
     
     if (currentStep === 1) {
-      // Very permissive validation for testing
+      // Basic Information validation
       if (!formData.firstName.trim()) errors.firstName = 'First name is required';
       if (!formData.lastName.trim()) errors.lastName = 'Last name is required';
-      // Make email optional for testing
       if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = 'Invalid email format';
       if (formData.phone && !/^[0-9+\-\s()]+$/.test(formData.phone)) errors.phone = 'Invalid phone format';
       // Make role optional for testing
@@ -257,27 +271,33 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
       }
     }
     
-    if (currentStep === 3) {
-      // Very permissive validation for testing
-      if (formData.dateOfBirth && new Date(formData.dateOfBirth) > new Date()) {
-        errors.dateOfBirth = 'Date of birth cannot be in the future';
-      }
-    }
-    
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  const handleNextStep = () => {
-    const isValid = validateStep(step);
+  const handleNextStep = (e) => {
+    if (e) e.preventDefault(); // ✅ EXTRA SAFETY: Prevent any form submission
+    console.log("🔄 Next Step clicked. Current step:", step, "Total steps:", totalSteps);
     
-    if (isValid) {
-      setStep(step + 1);
-    }
+    // ✅ PROFESSIONAL UX: Validate current step before proceeding
+    setIsSubmitted(true); // Show validation errors for current step
+    const isValid = validateStep(step);
+    if (!isValid) return;
+    
+    setIsSubmitted(false); // Reset for next step (professional UX)
+    setStep(step + 1);
   };
 
   const handlePreviousStep = () => {
+    setIsSubmitted(false); // ✅ PROFESSIONAL UX: Hide validation errors when going back
     setStep(step - 1);
+  };
+
+  // ✅ BLOCK ENTER KEY SUBMIT unless on last step
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && step !== totalSteps) {
+      e.preventDefault();
+    }
   };
 
   const validateForm = () => {
@@ -393,7 +413,20 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
+    // ✅ DOUBLE SAFETY: Prevent double submit
+    if (saving) return;
+
+    // ✅ Block submit unless on last step
+    if (step !== totalSteps) {
+      console.warn("🛑 BLOCKED submit before final step. Current step:", step, "Total steps:", totalSteps);
+      setError('Please complete all steps before submitting');
+      return;
+    }
+
+    // ✅ PROFESSIONAL UX: Show validation errors only on submit attempt
+    setIsSubmitted(true);
+
     if (!validateForm()) {
       setError('Please fix validation errors');
       return;
@@ -403,6 +436,39 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
       setSaving(true);
       setError('');
       
+      const selectedRole = roles.find(r => r.id === parseInt(formData.roleId));
+      const roleName = selectedRole?.name;
+      
+      // ✅ DEPARTMENT HANDLING: TL uses departmentName, others use departmentId
+      let departmentIdValue = null;
+      let departmentNameValue = null;
+      
+      // ✅ DESIGNATION HANDLING: TL uses designationName, others use designationId
+      let designationIdValue = null;
+      let designationNameValue = null;
+      
+      // ✅ TEAM HANDLING: TL uses teamName, others use teamId
+      let teamIdValue = null;
+      let teamNameValue = null;
+      
+      // ✅ REPORTING MANAGER HANDLING: TL uses managerName, others use managerId
+      let reportingManagerIdValue = null;
+      let reportingManagerNameValue = null;
+      
+      if (roleName === 'TL') {
+        // TL: Use string values
+        departmentNameValue = formData.departmentId || null;
+        designationNameValue = formData.designationId || null;
+        teamNameValue = formData.teamId || null;
+        reportingManagerNameValue = formData.reportingManagerId || null;
+      } else {
+        // Non-TL: Use ID values
+        departmentIdValue = formData.departmentId ? parseInt(formData.departmentId) : null;
+        designationIdValue = formData.designationId && formData.designationId !== 'other' ? parseInt(formData.designationId) : null;
+        teamIdValue = formData.teamId && formData.teamId !== 'other' ? parseInt(formData.teamId) : null;
+        reportingManagerIdValue = formData.reportingManagerId ? parseInt(formData.reportingManagerId) : null;
+      }
+      
       const payload = {
         firstName: formData.firstName,
         lastName: formData.lastName,
@@ -411,9 +477,15 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
         employeeId: formData.employeeId,
         userId: formData.userId,
         roleId: formData.roleId ? parseInt(formData.roleId) : null,
-        teamId: formData.teamId === 'other' ? null : (formData.teamId ? parseInt(formData.teamId) : null),
-        departmentId: formData.departmentId ? parseInt(formData.departmentId) : null,
-        designationId: formData.designationId === 'other' ? null : (formData.designationId ? parseInt(formData.designationId) : null),
+        // ✅ CRITICAL FIX: Send correct fields based on role
+        departmentId: departmentIdValue,
+        departmentName: departmentNameValue,
+        designationId: designationIdValue,
+        designationName: designationNameValue,
+        teamId: teamIdValue,
+        teamName: teamNameValue,
+        reportingManagerId: reportingManagerIdValue,
+        reportingManagerName: reportingManagerNameValue,
         organizationId: formData.organizationId ? parseInt(formData.organizationId) : 1,
         hiredAt: formData.hiredAt ? new Date(formData.hiredAt).toISOString().split('T')[0] : null,
         dateOfBirth: formData.dateOfBirth ? new Date(formData.dateOfBirth).toISOString().split('T')[0] : null,
@@ -501,7 +573,7 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-4">
-              {[1, 2, 3].map((stepNumber) => (
+              {[1, 2].map((stepNumber) => (
                 <div key={stepNumber} className="flex items-center">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
                     step >= stepNumber 
@@ -522,19 +594,18 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
           <div className="flex justify-between text-sm text-gray-600">
             <span className={step >= 1 ? 'text-blue-600 font-medium' : ''}>Basic Information</span>
             <span className={step >= 2 ? 'text-blue-600 font-medium' : ''}>Organizational Details</span>
-            <span className={step >= 3 ? 'text-blue-600 font-medium' : ''}>Additional Information</span>
           </div>
         </div>
 
         {/* Form */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          {error && (
+          {isSubmitted && error && (
             <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-t-lg">
               {error}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="p-6">
+          <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="p-6">
             {/* Step 1: Basic Information */}
             {step === 1 && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -558,7 +629,7 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                       }`}
                       placeholder="Enter first name"
                     />
-                    {formErrors.firstName && (
+                    {isSubmitted && formErrors.firstName && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.firstName}</p>
                     )}
                   </div>
@@ -577,7 +648,7 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                       }`}
                       placeholder="Enter last name"
                     />
-                    {formErrors.lastName && (
+                    {isSubmitted && formErrors.lastName && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.lastName}</p>
                     )}
                   </div>
@@ -596,7 +667,7 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                       }`}
                       placeholder="Enter email address"
                     />
-                    {formErrors.email && (
+                    {isSubmitted && formErrors.email && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.email}</p>
                     )}
                   </div>
@@ -615,7 +686,7 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                       }`}
                       placeholder="Enter phone number"
                     />
-                    {formErrors.phone && (
+                    {isSubmitted && formErrors.phone && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.phone}</p>
                     )}
                   </div>
@@ -633,7 +704,7 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                         formErrors.dateOfBirth ? 'border-red-500' : 'border-gray-300'
                       }`}
                     />
-                    {formErrors.dateOfBirth && (
+                    {isSubmitted && formErrors.dateOfBirth && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.dateOfBirth}</p>
                     )}
                   </div>
@@ -733,7 +804,7 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                       }`}
                       placeholder="Enter employee ID"
                     />
-                    {formErrors.employeeId && (
+                    {isSubmitted && formErrors.employeeId && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.employeeId}</p>
                     )}
                   </div>
@@ -757,10 +828,74 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                         </option>
                       ))}
                     </select>
-                    {formErrors.roleId && (
+                    {isSubmitted && formErrors.roleId && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.roleId}</p>
                     )}
                   </div>
+
+                  {/* ✅ CONDITIONAL DEPARTMENT FIELD (TL only) */}
+                  {(() => {
+                    const selectedRole = roles.find(r => r.id === parseInt(formData.roleId));
+                    const roleName = selectedRole?.name;
+                    return roleName === 'TL';
+                  })() && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Department *
+                      </label>
+                      <select
+                        name="departmentId"
+                        value={formData.departmentId || ''}
+                        onChange={handleChange}
+                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          formErrors.departmentId ? 'border-red-500' : 'border-gray-300'
+                        }`}
+                      >
+                        <option value="">Select Department</option>
+                        {(() => {
+                          const selectedRole = roles.find(r => r.id === parseInt(formData.roleId));
+                          const isTL = selectedRole?.name === 'TL';
+                          
+                          if (isTL) {
+                            // ✅ SAFE VERSION: Handle both string and object department data
+                            return departments.map((dept, index) => {
+                              // ✅ EXTRA SAFETY: Handle null/undefined department data
+                              if (!dept) return null;
+                              
+                              const label =
+                                typeof dept === 'string'
+                                  ? dept
+                                  : dept?.name || '';
+
+                              // ✅ Skip empty labels to prevent invalid options
+                              if (!label.trim()) return null;
+
+                              return (
+                                <option key={`dept-${label}-${index}`} value={label}>
+                                  {label}
+                                </option>
+                              );
+                            }).filter(Boolean); // ✅ Remove null options
+                          } else {
+                            // For non-TL: Show department objects with stable keys
+                            return departments.map((dept) => {
+                              // ✅ EXTRA SAFETY: Handle null/undefined department data
+                              if (!dept || !dept.id) return null;
+                              
+                              return (
+                                <option key={`dept-${dept.id}`} value={dept.id}>
+                                  {dept.name || 'Unknown'}
+                                </option>
+                              );
+                            }).filter(Boolean); // ✅ Remove null options
+                          }
+                        })()}
+                      </select>
+                      {isSubmitted && formErrors.departmentId && (
+                        <p className="mt-1 text-sm text-red-600">{formErrors.departmentId}</p>
+                      )}
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -775,7 +910,7 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                       <option value="">Select Manager</option>
                       {managers.map((manager) => (
                         <option key={manager.id} value={manager.id}>
-                          {manager.firstName} {manager.lastName} - {manager.roleName}
+                          {manager.firstName} {manager.lastName}
                         </option>
                       ))}
                     </select>
@@ -794,14 +929,19 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                       }`}
                     >
                       <option value="">Select Team</option>
-                      {teams.map((team) => (
-                        <option key={team.id} value={team.id}>
-                          {team.name}
-                        </option>
-                      ))}
+                      {teams.map((team) => {
+                        // ✅ EXTRA SAFETY: Handle null/undefined team data
+                        if (!team || !team.id) return null;
+                        
+                        return (
+                          <option key={team.id} value={team.id}>
+                            {team.name || 'Unknown'}
+                          </option>
+                        );
+                      }).filter(Boolean)} {/* ✅ Remove null options */}
                       <option value="other">Other (Specify)</option>
                     </select>
-                    {formErrors.teamId && (
+                    {isSubmitted && formErrors.teamId && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.teamId}</p>
                     )}
                     
@@ -826,21 +966,30 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                     </label>
                     <select
                       name="designationId"
-                      value={formData.designationId}
+                      value={
+                      typeof formData.designationId === 'object'
+                        ? formData.designationId.id
+                        : formData.designationId || ''
+                    }
                       onChange={handleChange}
                       className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                         formErrors.designationId ? 'border-red-500' : 'border-gray-300'
                       }`}
                     >
                       <option value="">Select Designation</option>
-                      {designations.map((designation) => (
-                        <option key={designation.id} value={designation.id}>
-                          {designation.name}
-                        </option>
-                      ))}
+                      {designations.map((designation) => {
+                        // ✅ EXTRA SAFETY: Handle null/undefined designation data
+                        if (!designation || !designation.id) return null;
+                        
+                        return (
+                          <option key={designation.id} value={designation.id}>
+                            {designation.name || 'Unknown'}
+                          </option>
+                        );
+                      }).filter(Boolean)} {/* ✅ Remove null options */}
                       <option value="other">Other (Specify)</option>
                     </select>
-                    {formErrors.designationId && (
+                    {isSubmitted && formErrors.designationId && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.designationId}</p>
                     )}
                     
@@ -948,184 +1097,6 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
               </div>
             )}
 
-            {/* Step 3: Additional Information */}
-            {step === 3 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                    <Shield size={18} />
-                    Additional Information
-                  </h3>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Address
-                    </label>
-                    <textarea
-                      name="address"
-                      value={formData.address}
-                      onChange={handleChange}
-                      rows="3"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter address"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        City
-                      </label>
-                      <input
-                        type="text"
-                        name="city"
-                        value={formData.city}
-                        onChange={handleChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Enter city"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        State
-                      </label>
-                      <input
-                        type="text"
-                        name="state"
-                        value={formData.state}
-                        onChange={handleChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Enter state"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Pincode
-                      </label>
-                      <input
-                        type="text"
-                        name="pincode"
-                        value={formData.pincode}
-                        onChange={handleChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Enter pincode"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Country
-                      </label>
-                      <input
-                        type="text"
-                        name="country"
-                        value={formData.country}
-                        onChange={handleChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Enter country"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Blood Group
-                    </label>
-                    <select
-                      name="bloodGroup"
-                      value={formData.bloodGroup}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">Select Blood Group</option>
-                      <option value="A+">A+</option>
-                      <option value="A-">A-</option>
-                      <option value="B+">B+</option>
-                      <option value="B-">B-</option>
-                      <option value="O+">O+</option>
-                      <option value="O-">O-</option>
-                      <option value="AB+">AB+</option>
-                      <option value="AB-">AB-</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Skills
-                    </label>
-                    <textarea
-                      name="skills"
-                      value={formData.skills}
-                      onChange={handleChange}
-                      rows="3"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter skills (comma separated)"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Experience
-                    </label>
-                    <textarea
-                      name="experience"
-                      value={formData.experience}
-                      onChange={handleChange}
-                      rows="3"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter experience details"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Education
-                    </label>
-                    <textarea
-                      name="education"
-                      value={formData.education}
-                      onChange={handleChange}
-                      rows="3"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter education details"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Certifications
-                    </label>
-                    <textarea
-                      name="certifications"
-                      value={formData.certifications}
-                      onChange={handleChange}
-                      rows="3"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter certifications"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Notes
-                    </label>
-                    <textarea
-                      name="notes"
-                      value={formData.notes}
-                      onChange={handleChange}
-                      rows="3"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter any additional notes"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Navigation Buttons */}
             <div className="flex justify-between mt-8 pt-6 border-t">
               <button
@@ -1149,18 +1120,18 @@ export default function AddEmployeePage({ onSuccess, isModal = false, editingEmp
                 ) : (
                   <button
                     type="submit"
-                    disabled={saving}
+                    disabled={saving || step !== totalSteps}
                     className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {saving ? (
                       <div className="flex items-center justify-center">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        <span className="ml-2">Creating Employee...</span>
+                        <span className="ml-2">{editingEmployee ? 'Updating Employee...' : 'Creating Employee...'}</span>
                       </div>
                     ) : (
                       <>
                         <Save size={16} />
-                        <span>Create Employee</span>
+                        <span>{editingEmployee ? 'Update Employee' : 'Create Employee'}</span>
                       </>
                     )}
                   </button>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { backendApi } from "@/services/api";
+import { getCurrentUserName, getCurrentUserRole } from "@/utils/userUtils";
 
 function initialForm() {
   return {
@@ -23,6 +24,10 @@ function initialForm() {
 
 export default function SitesPage() {
   const router = useRouter();
+  
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -383,7 +388,7 @@ export default function SitesPage() {
     <DashboardLayout
       header={{
         project: "Sites",
-        user: { name: "Admin User", role: "Administrator" },
+        user: { name: userName, role: userRole },
         notifications: [],
         tabs: [
           { key: "sites", label: "📍 Sites", href: "/sites" },

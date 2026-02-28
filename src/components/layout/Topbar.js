@@ -5,6 +5,7 @@ import { Bell, Check, CheckCheck, Trash2, RefreshCw, X, User, Calendar, Clock } 
 
 import { backendApi } from '@/services/api';
 import { listenForegroundMessages } from '@/lib/web_push';
+import webSocketService from '@/services/websocketService';
 
 export default function Topbar({ tabs, activeTabKey, onTabClick }) {
   const [open, setOpen] = useState(false);
@@ -100,9 +101,33 @@ export default function Topbar({ tabs, activeTabKey, onTabClick }) {
   }
 
   useEffect(() => {
+    // 🔥 CRITICAL: Initialize WebSocket connection first
+    async function initSocket() {
+      try {
+        await webSocketService.connect();
+        console.log('WebSocket connected successfully');
+      } catch (error) {
+        console.error('Failed to connect WebSocket:', error);
+      }
+    }
+
+    initSocket();
+    
+    // Initial refresh and polling fallback
     refresh();
     const t = setInterval(refresh, 30000);
-    return () => clearInterval(t);
+    
+    const handleAdminNotification = (data) => {
+      console.log('Received admin notification:', data);
+      refresh(); // Real-time update - only once!
+    };
+    
+    webSocketService.addEventListener('adminNotification', handleAdminNotification);
+    
+    return () => {
+      clearInterval(t);
+      webSocketService.removeEventListener('adminNotification', handleAdminNotification);
+    };
   }, [userId]);
 
   useEffect(() => {

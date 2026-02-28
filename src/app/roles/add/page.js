@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Plus } from 'lucide-react';
 import { backendApi } from '@/services/api';
+import { getCurrentUserName, getCurrentUserRole } from '@/utils/userUtils';
 
 const leftPermissions = [
   'Dashboard',
@@ -27,6 +28,10 @@ const rightPermissions = [
 
 export default function AddRolePage() {
   const router = useRouter();
+  
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
@@ -54,8 +59,8 @@ export default function AddRolePage() {
       header={{
         project: 'Organization Management',
         user: {
-          name: 'Admin User',
-          role: 'Administrator',
+          name: userName,
+          role: userRole,
         },
         notifications: [],
         tabs: [

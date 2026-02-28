@@ -5,6 +5,7 @@ import { Plus, Search, Edit2, Trash2, Eye, Building2, Phone, Globe, MapPin, Sett
 import { backendApi } from "@/services/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import DynamicFieldsSection from "@/components/DynamicFieldsSection";
+import { getCurrentUserName, getCurrentUserRole, getCurrentUserId } from "@/utils/userUtils";
 import {
   fetchFieldDefinitions,
   fetchFieldValues,
@@ -15,6 +16,10 @@ import {
 import { toast } from "react-toastify";
 
 export default function BanksPage() {
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
+  const userId = getCurrentUserId();
   const [banks, setBanks] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -289,7 +294,7 @@ export default function BanksPage() {
     <DashboardLayout
       header={{
         project: 'Banks',
-        user: getLoggedInUser(),
+        user: { name: userName, role: userRole },
         notifications: [],
       }}
     >

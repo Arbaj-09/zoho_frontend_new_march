@@ -13,10 +13,45 @@ export default function CustomerAddressRequestsPage() {
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('PENDING');
+    const [showAddressTypeDropdown, setShowAddressTypeDropdown] = useState(null);
 
     useEffect(() => {
         fetchAddressEditRequests();
     }, [filter]);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (showAddressTypeDropdown && !event.target.closest('.address-type-dropdown')) {
+                setShowAddressTypeDropdown(null);
+            }
+        };
+
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, [showAddressTypeDropdown]);
+
+    const handleAddressTypeSelect = async (requestId, addressType) => {
+        try {
+            await backendApi.put(`/api/customer-address-edit-requests/${requestId}/update-address-type`, { addressType });
+            
+            // Update local state
+            setRequests(requests.map(req => 
+                req.id === requestId 
+                    ? { ...req, addressType }
+                    : req
+            ));
+            
+            setShowAddressTypeDropdown(null);
+            
+            // Send notification to admin panel
+            alert(`Address type updated to ${addressType} for request #${requestId}`);
+            
+        } catch (error) {
+            console.error('Failed to update address type:', error);
+            alert('Failed to update address type');
+        }
+    };
 
     const fetchAddressEditRequests = async () => {
         try {
@@ -186,26 +221,59 @@ export default function CustomerAddressRequestsPage() {
                                                     <User size={16} className="text-gray-400" />
                                                     <div>
                                                         <div className="text-sm font-medium text-gray-900">
-                                                            {request.customer?.name}
+                                                            {request.customerName}
                                                         </div>
                                                         <div className="text-sm text-gray-500">
-                                                            {request.customer?.email}
+                                                            ID: {request.customerId}
                                                         </div>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                                    {request.addressType}
-                                                </span>
+                                                <div className="relative address-type-dropdown">
+                                                    <button
+                                                        onClick={() => setShowAddressTypeDropdown(request.id)}
+                                                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors"
+                                                    >
+                                                        {request.addressType || 'Select Type'}
+                                                        <svg className="ml-1 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                        </svg>
+                                                    </button>
+                                                    
+                                                    {/* Address Type Dropdown */}
+                                                    {showAddressTypeDropdown === request.id && (
+                                                        <div className="absolute z-10 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200">
+                                                            <div className="py-1">
+                                                                {['PRIMARY', 'POLICE', 'POST', 'TAHSIL'].map((type) => (
+                                                                    <button
+                                                                        key={type}
+                                                                        onClick={() => handleAddressTypeSelect(request.id, type)}
+                                                                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                                                    >
+                                                                        <div className="flex items-center">
+                                                                            <div className={`w-2 h-2 rounded-full mr-2 ${
+                                                                                type === 'PRIMARY' ? 'bg-green-500' :
+                                                                                type === 'POLICE' ? 'bg-blue-500' :
+                                                                                type === 'POST' ? 'bg-yellow-500' :
+                                                                                'bg-purple-500'
+                                                                            }`}></div>
+                                                                            {type}
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div>
                                                     <div className="text-sm font-medium text-gray-900">
-                                                        {request.requestedByEmployee?.firstName} {request.requestedByEmployee?.lastName}
+                                                        {request.employeeName}
                                                     </div>
                                                     <div className="text-sm text-gray-500">
-                                                        {request.requestedByEmployee?.email}
+                                                        {request.employeeEmail}
                                                     </div>
                                                 </div>
                                             </td>

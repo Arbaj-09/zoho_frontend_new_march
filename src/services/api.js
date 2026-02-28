@@ -1,84 +1,78 @@
 export function createApiClient({ baseUrl = "" } = {}) {
-  async function request(path, { method = "GET", body } = {}) {
-    // Get auth token from localStorage
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-    const userId = (() => {
-      if (typeof window === 'undefined') return null;
-      try {
-        const raw = localStorage.getItem('user_data');
-        const obj = raw ? JSON.parse(raw) : null;
-        return obj?.id ?? null;
-      } catch (_e) {
-        return null;
-      }
-    })();
+
+  async function request(path, { method = "GET", body, customHeaders = {} } = {}) {
+    // Get auth token and user data from localStorage
+    const token = localStorage.getItem("auth_token");
+    const userData = localStorage.getItem("user_data");
+    const user = localStorage.getItem("user");
+    const userRole = localStorage.getItem("user_role");
     
+    // 🔥 GET USER INFO FOR DEPARTMENT ISOLATION
+    const parsedUser = userData ? JSON.parse(userData) : (user ? JSON.parse(user) : null);
+    const userId = parsedUser?.id || null;
+    const userDepartment = parsedUser?.department || parsedUser?.departmentName || null;
+
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...customHeaders
+    };
+
+    // Add auth token if available
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    // 🔥 ADD USER CONTEXT HEADERS FOR ALL CRM ENDPOINTS
+    if (path.includes('/deals') || path.includes('/tasks') || path.includes('/clients') || path.includes('/activities') || path.includes('/notes')) {
+      if (userId) headers["X-User-Id"] = userId?.toString();
+      if (userRole) headers["X-User-Role"] = userRole;
+      if (userDepartment) headers["X-User-Department"] = userDepartment;
+    }
+
+    // Add role-based headers for admin endpoints
+    if (path.includes('/tasks') && !path.includes('/employee/')) {
+      // 🔥 Allow ADMIN, MANAGER, and TL roles to access tasks
+      if (!['ADMIN', 'MANAGER', 'TL'].includes(userRole)) {
+        console.log('🔍 API Access check - userRole:', userRole, 'path:', path);
+        throw new Error('Access denied: Admin, Manager, or TL role required');
+      }
+    }
+
+    // Add user ID filter for sub-admins
+    if (path.includes('/tasks') && userRole === 'SUBADMIN' && userId) {
+      // Modify URL to include createdBy filter for sub-admins
+      const separator = path.includes('?') ? '&' : '?';
+      path = `${path}${separator}createdBy=${userId}`;
+    }
+
     const res = await fetch(baseUrl + path, {
       method,
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        // Add authorization header if token exists
-        ...(token && { Authorization: `Bearer ${token}` }),
-        ...(userId != null && { "X-User-Id": String(userId) }),
-      },
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     });
 
     if (!res.ok) {
-      const contentType = res.headers.get("content-type") || "";
-      let errorData;
-      
-      if (contentType.includes("application/json")) {
-        errorData = await res.json().catch(() => ({}));
-      } else {
-        const text = await res.text().catch(() => "");
-        errorData = { message: text || res.statusText };
-      }
-      
-      const errorMessage = errorData.message || `Request failed (${res.status})`;
-      const error = new Error(errorMessage);
-      error.status = res.status;
-      error.data = errorData;
-      throw error;
+      const errorText = await res.text();
+      console.error('API Error:', res.status, errorText);
+      throw new Error(errorText || `HTTP ${res.status}`);
     }
 
-    if (res.status === 204) {
-      return null;
-    }
-
-    const contentType = res.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      return res.json();
-    }
-
-    const text = await res.text().catch(() => "");
-    if (!text) {
-      return null;
-    }
-    throw new Error(`Expected JSON but received: ${contentType || "unknown"}. Body: ${text}`);
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
   }
 
-  function get(path) {
-    return request(path, { method: "GET" });
-  }
-
-  function post(path, body) {
-    return request(path, { method: "POST", body });
-  }
-
-  function put(path, body) {
-    return request(path, { method: "PUT", body });
-  }
-
-  function del(path) {
-    return request(path, { method: "DELETE" });
-  }
-
-  return { get, post, put, delete: del };
+  return {
+    get: (p) => request(p),
+    post: (p, b) => request(p, { method: "POST", body: b }),
+    put: (p, b) => request(p, { method: "PUT", body: b }),
+    delete: (p) => request(p, { method: "DELETE" }),
+  };
 }
 
-export const backendApi = createApiClient({ baseUrl: "http://localhost:8080/api" });
+export const backendApi = createApiClient({
+  baseUrl: "http://localhost:8080/api",
+});
 
 export function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

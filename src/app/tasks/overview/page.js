@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { taskApi } from "@/services/taskApi";
+import { departmentApiService } from "@/services/departmentApi.service";
 import { 
     Calendar,
     CheckCircle,
@@ -11,6 +11,7 @@ import {
     TrendingUp,
     Plus
 } from "lucide-react";
+import { useDepartmentRequiredGuard } from "@/hooks/useDepartmentGuard";
 
 // Safe date formatting function to prevent hydration issues
 const formatDate = (dateString) => {
@@ -30,6 +31,9 @@ const formatDate = (dateString) => {
 };
 
 export default function TasksOverviewPage() {
+    // 🔥 PAGE GUARD: Department required for task access
+    useDepartmentRequiredGuard();
+    
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(false);
     const [stats, setStats] = useState({
@@ -46,8 +50,12 @@ export default function TasksOverviewPage() {
     const loadTasks = async () => {
         try {
             setLoading(true);
-            const response = await taskApi.list();
-            const tasksData = response.data || [];
+            console.log('Loading tasks for department...');
+            
+            // 🔥 Use department-aware API
+            const tasksData = await departmentApiService.getTasks();
+            console.log('Tasks loaded:', tasksData.length, 'tasks');
+            
             setTasks(tasksData);
 
             // Calculate stats
@@ -59,6 +67,10 @@ export default function TasksOverviewPage() {
             setStats({ total, completed, inProgress, delayed });
         } catch (error) {
             console.error("Failed to load tasks:", error);
+            // Show user-friendly error message
+            if (error.message.includes('Department information required')) {
+                console.error('User department not found. Please check your profile.');
+            }
         } finally {
             setLoading(false);
         }

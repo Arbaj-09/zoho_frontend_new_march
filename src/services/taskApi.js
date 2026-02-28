@@ -12,7 +12,7 @@ const apiRequest = async (endpoint, options = {}) => {
 
   // Add auth token if available
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('jwt_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }

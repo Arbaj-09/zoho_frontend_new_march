@@ -30,7 +30,7 @@ export default function EmployeeDashboard() {
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
-      localStorage.removeItem("auth_token");
+      localStorage.removeItem("jwt_token");
       localStorage.removeItem("user_role");
       localStorage.removeItem("user_data");
     }

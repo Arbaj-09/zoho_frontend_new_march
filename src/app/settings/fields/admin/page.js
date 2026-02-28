@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Settings, Plus, Edit2, Trash2, Eye, X, ChevronDown } from "lucide-react";
 import { backendApi } from "@/services/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import { getCurrentUserName, getCurrentUserRole } from "@/utils/userUtils";
 import { toast } from "react-toastify";
 
 const ENTITY_TYPES = [
@@ -22,6 +23,10 @@ const FIELD_TYPES = [
 ];
 
 export default function FieldDefinitionsAdminPage() {
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
+  
   const [selectedEntity, setSelectedEntity] = useState("product");
   const [fields, setFields] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -167,7 +172,7 @@ export default function FieldDefinitionsAdminPage() {
     <DashboardLayout
       header={{
         project: 'Field Definitions',
-        user: { name: "Admin", email: "admin@example.com" },
+        user: { name: userName, role: userRole },
         notifications: [],
       }}
     >

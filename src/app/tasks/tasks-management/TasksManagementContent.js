@@ -1,9 +1,30 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { taskApi, taskEmployeesApi, taskCustomFieldsApi } from "@/services/taskApi";
-import { Plus, Search, Filter, Calendar, Download, Edit2, Trash2, User, Clock, MapPin } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { departmentApiService } from "@/services/departmentApi.service";
+import { Plus, Search, Filter, Calendar, Download, Edit2, Trash2, User, Clock, MapPin, AlertCircle } from "lucide-react";
 import { toast } from 'react-toastify';
+import { useCustomerAddressSync } from "@/context/CustomerAddressContext";
+
+// 🔥 GET CURRENT USER INFO
+const getCurrentUser = () => {
+  if (typeof window === "undefined") return null;
+  
+  try {
+    const userData = localStorage.getItem("user_data");
+    const user = localStorage.getItem("user");
+    
+    const parsed = userData ? JSON.parse(userData) : (user ? JSON.parse(user) : null);
+    
+    return {
+      role: parsed?.roleName || parsed?.role || "USER",
+      department: parsed?.departmentName || parsed?.department || null,
+      id: parsed?.id || null
+    };
+  } catch {
+    return { role: "USER", department: null, id: null };
+  }
+};
 
 // Safe date formatting function to prevent hydration issues
 const formatDate = (dateString) => {
@@ -36,48 +57,94 @@ const getStatusColor = (status) => {
 };
 
 export default function TasksManagementContent() {
+  const { version } = useCustomerAddressSync();
+  const [currentUser, setCurrentUser] = useState(null);
+  const loadingRef = useRef(false);
+  
   const [tasks, setTasks] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [customFields, setCustomFields] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
-  const [viewMode, setViewMode] = useState("table"); // table or card
+  const [viewMode, setViewMode] = useState("table");
   const [deleteTaskId, setDeleteTaskId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const recordsPerPage = 5;
 
+  // 🔥 STABILIZE USER - Load once
   useEffect(() => {
-    loadInitialData();
+    setCurrentUser(getCurrentUser());
   }, []);
 
+  // 🔥 LOAD DEPARTMENTS - Only for ADMIN/MANAGER
+  useEffect(() => {
+    if (!currentUser) return;
+    if (currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER') {
+      loadDepartments();
+    }
+  }, [currentUser]);
+
+  // 🔥 LOAD DATA - Only when user or version changes
+  useEffect(() => {
+    if (!currentUser) return;
+
+    if (
+      (currentUser.role === "TL" || currentUser.role === "EMPLOYEE") &&
+      !currentUser.department
+    ) {
+      toast.error("Department information required to access tasks");
+      return;
+    }
+
+    loadData();
+  }, [currentUser, version]);
+
+  // 🔥 FILTER EFFECT - Only reset pagination (NO API CALL)
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, dateRange.start, dateRange.end]);
+  }, [searchTerm, statusFilter, departmentFilter, dateRange.start, dateRange.end]);
 
-  const loadInitialData = async () => {
+  const loadDepartments = async () => {
+    try {
+      const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
+      const response = await fetch(`${API_BASE_URL}/api/stages/departments`);
+      const data = await response.json();
+      setDepartments(data || []);
+    } catch (error) {
+      console.error("Failed to load departments:", error);
+    }
+  };
+
+  const loadData = async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+
     try {
       setLoading(true);
-      const [tasksRes, employeesRes, fieldsRes] = await Promise.all([
-        taskApi.list(),
-        taskEmployeesApi.list({ 
-          loggedInEmployeeId: 1, // Replace with actual user ID
-          subadminId: 1, // Replace with actual subadmin ID
-          roleName: "ADMIN" // Replace with actual user role
-        }),
-        taskCustomFieldsApi.list({ customTaskType: "Default Task" })
+      console.log('Loading department-wise task data...');
+      
+      const [tasksData, employeesData] = await Promise.all([
+        departmentApiService.getTasks(),
+        departmentApiService.getEmployees()
       ]);
 
-      setTasks(tasksRes.data || []);
-      setEmployees(employeesRes.data || []);
-      setCustomFields(fieldsRes.data || []);
+      setTasks(tasksData || []);
+      setEmployees(employeesData || []);
+      setCustomFields([]);
+      
+      console.log('Department tasks loaded:', tasksData?.length || 0, 'tasks');
     } catch (error) {
       console.error("Failed to load data:", error);
+      toast.error(error.message || "Failed to load tasks");
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   };
 
@@ -85,9 +152,10 @@ export default function TasksManagementContent() {
     const matchesSearch = task.taskName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           task.assignedToEmployeeName?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || task.status === statusFilter;
+    const matchesDepartment = departmentFilter === "all" || task.department === departmentFilter;
     const matchesDate = (!dateRange.start || new Date(task.scheduledStartTime) >= new Date(dateRange.start)) &&
                        (!dateRange.end || new Date(task.scheduledStartTime) <= new Date(dateRange.end));
-    return matchesSearch && matchesStatus && matchesDate;
+    return matchesSearch && matchesStatus && matchesDepartment && matchesDate;
   });
 
   // Sort tasks by ID descending (latest first)
@@ -117,22 +185,42 @@ export default function TasksManagementContent() {
 
   const handleDelete = async (taskId) => {
     try {
-      await taskApi.delete(taskId);
+      await departmentApiService.deleteTask(taskId);
       setTasks(tasks.filter(t => t.id !== taskId));
       setDeleteTaskId(null);
+      toast.success("Task deleted successfully");
     } catch (error) {
       console.error("Failed to delete task:", error);
+      toast.error(error.message || "Failed to delete task");
     }
   };
 
   return (
+    // 🔥 DEPARTMENT GUARD - Role-based validation
+    !currentUser ? (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-200 border-t-indigo-600"></div>
+      </div>
+    ) : (currentUser.role === "TL" || currentUser.role === "EMPLOYEE") &&
+    !currentUser.department ? (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50">
+        <div className="text-center max-w-md mx-auto p-6">
+          <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Department Required</h3>
+          <p className="text-gray-600">Department information is required to access tasks management.</p>
+        </div>
+      </div>
+    ) : (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Tasks Management</h1>
-            <p className="text-slate-600">Create and manage field tasks with dynamic custom fields</p>
+            <p className="text-slate-600">
+              Department: <span className="font-medium">{currentUser?.department || 'N/A'}</span> | 
+              Role: <span className="font-medium">{currentUser?.role || 'N/A'}</span>
+            </p>
           </div>
           <button
             onClick={openCreateModal}
@@ -160,6 +248,20 @@ export default function TasksManagementContent() {
             </div>
             
             <div className="flex gap-2">
+              {/* 🔥 DEPARTMENT FILTER - Only for ADMIN/MANAGER */}
+              {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER') && (
+                <select
+                  value={departmentFilter}
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                >
+                  <option value="all">All Departments</option>
+                  {departments.map(dept => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
+              )}
+
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
@@ -227,6 +329,7 @@ export default function TasksManagementContent() {
                           <input type="checkbox" className="rounded border-slate-300" />
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Task Name</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Department</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Client</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Customer Location</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Start Time</th>
@@ -243,8 +346,15 @@ export default function TasksManagementContent() {
                             <input type="checkbox" className="rounded border-slate-300" />
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{task.taskName || '-'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-indigo-100 text-indigo-800">
+                              {task.department || '-'}
+                            </span>
+                          </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{task.clientName || '-'}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 max-w-xs truncate">{task.address || task.customerAddress?.addressLine || '-'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 max-w-xs truncate">
+                            {task.address || '-'}
+                          </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
                             {formatDate(task.scheduledStartTime)}
                           </td>
@@ -377,10 +487,11 @@ export default function TasksManagementContent() {
             task={editingTask}
             employees={employees}
             customFields={customFields}
+            departments={departments}
+            currentUser={currentUser}
             onClose={closeModal}
             onSave={(savedTask) => {
-              // ✅ Refresh tasks from server to show latest data
-              loadInitialData();
+              loadData();
               closeModal();
             }}
           />
@@ -418,15 +529,17 @@ export default function TasksManagementContent() {
         )}
       </div>
     </div>
+    )
   );
 }
 
 // Task Modal Component
-function TaskModal({ task, employees, customFields, onClose, onSave }) {
+function TaskModal({ task, employees, customFields, departments, currentUser, onClose, onSave }) {
   const [formData, setFormData] = useState({
     taskName: "",
     taskDescription: "",
     customTaskType: "Default Task",
+    department: "",
     assignedToEmployeeId: "",
     startDate: "",
     endDate: "",
@@ -453,6 +566,11 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
     required: false,
   });
 
+  // 🔥 FILTERED EMPLOYEES - Based on selected department
+  const filteredEmployees = formData.department
+    ? employees.filter(emp => emp.departmentName === formData.department)
+    : employees;
+
   useEffect(() => {
     // ✅ Initialize modalCustomFields from parent props
     setModalCustomFields(customFields || []);
@@ -472,54 +590,70 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
     fetchCustomerAddresses(formData.clientId);
   }, [formData.clientId]);
 
+  // 🔥 RESET EMPLOYEE when department changes
+  useEffect(() => {
+    // Only reset if employee is not from the selected department
+    if (formData.assignedToEmployeeId && formData.department) {
+      const selectedEmployee = employees.find(emp => emp.id === Number(formData.assignedToEmployeeId));
+      if (selectedEmployee && selectedEmployee.departmentName !== formData.department) {
+        setFormData(prev => ({ ...prev, assignedToEmployeeId: "" }));
+      }
+    }
+  }, [formData.department, employees]);
+
   useEffect(() => {
     if (!task) {
-      // Create mode - initialize empty custom fields
+      // 🔥 CREATE MODE - Auto-fill department for TL/EMPLOYEE only
       const emptyMap = {};
       modalCustomFields.forEach(field => {
         emptyMap[field.id] = "";
       });
-      setFormData(prev => ({ ...prev, customFields: emptyMap }));
+      
+      // Only auto-fill department for TL/EMPLOYEE (not for ADMIN/MANAGER)
+      const initialDepartment = (currentUser?.role === 'TL' || currentUser?.role === 'EMPLOYEE') 
+        ? currentUser?.department || ""
+        : ""; // ADMIN/MANAGER start with empty department
+      
+      console.log('CREATE MODE - User role:', currentUser?.role, 'Initial department:', initialDepartment);
+      
+      setFormData(prev => ({ 
+        ...prev, 
+        customFields: emptyMap,
+        department: initialDepartment
+      }));
       return;
     }
 
-    // Prefill Custom Field Values correctly
+    // 🔥 EDIT MODE - Prefill all fields including department
     const valuesMap = {};
     if (task.customFieldValues && Array.isArray(task.customFieldValues)) {
       task.customFieldValues.forEach((cf) => {
-        // correct key based on backend: fieldId
         valuesMap[cf.fieldId] = cf.value ?? "";
       });
     }
+
+    console.log('EDIT MODE - User role:', currentUser?.role, 'Task department:', task.department);
 
     setFormData({
       taskName: task.taskName || "",
       taskDescription: task.taskDescription || "",
       customTaskType: task.customTaskType || "Default Task",
-
+      department: task.department || "",
       assignedToEmployeeId: task.assignedToEmployeeId ? String(task.assignedToEmployeeId) : "",
       startDate: task.startDate || "",
       endDate: task.endDate || "",
-
-      // convert backend datetime to input datetime-local format
       scheduledStartTime: task.scheduledStartTime ? task.scheduledStartTime.slice(0, 16) : "",
       scheduledEndTime: task.scheduledEndTime ? task.scheduledEndTime.slice(0, 16) : "",
-
       repeatTask: task.repeatTask ?? false,
       status: task.status || "INQUIRY",
       clientId: task.clientId ? String(task.clientId) : "",
       customerAddressId: task.customerAddressId ? String(task.customerAddressId) : "",
-      address: task.address || "",
       internalTaskId: task.internalTaskId || "",
-
-      // custom fields
       customFields: valuesMap,
     });
 
-    // also fetch customfields for that tasktype
     fetchCustomFields(task.customTaskType || "Default Task");
-
-  }, [task]); // ✅ Only depend on task, not modalCustomFields
+  }, [task, currentUser]); // ✅ Only depend on task, not modalCustomFields
 
   useEffect(() => {
     // ✅ Fetch custom fields when task type changes
@@ -564,7 +698,11 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
       // Auto-select primary address if available
       const primaryAddress = addressOptions.find(addr => addr.isPrimary);
       if (primaryAddress) {
-        setFormData(prev => ({ ...prev, customerAddressId: primaryAddress.id }));
+        setFormData(prev => ({ 
+          ...prev, 
+          customerAddressId: primaryAddress.id,
+          address: primaryAddress.label
+        }));
       }
     } catch (error) {
       console.error("Failed to fetch customer addresses:", error);
@@ -659,6 +797,7 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
         taskName: formData.taskName,
         taskDescription: formData.taskDescription,
         customTaskType: formData.customTaskType,
+        department: formData.department,
         assignedToEmployeeId: formData.assignedToEmployeeId ? Number(formData.assignedToEmployeeId) : null,
         startDate: formData.startDate || null,
         endDate: formData.endDate || null,
@@ -752,6 +891,38 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
               />
             </div>
 
+            {/* 🔥 DEPARTMENT FIELD - Role-based behavior */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Department <span className="text-red-500">*</span>
+              </label>
+              {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER') ? (
+                // ADMIN/MANAGER: Editable dropdown
+                <select
+                  name="department"
+                  value={formData.department}
+                  onChange={handleInputChange}
+                  required
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-indigo-500"
+                >
+                  <option value="">Select department</option>
+                  {departments?.map(dept => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
+              ) : (
+                // TL/EMPLOYEE: Disabled input
+                <input
+                  type="text"
+                  name="department"
+                  value={formData.department}
+                  disabled
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 bg-slate-100 text-slate-600 cursor-not-allowed"
+                  placeholder="Auto-filled from your profile"
+                />
+              )}
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
                 Assign To <span className="text-red-500">*</span>
@@ -761,15 +932,23 @@ function TaskModal({ task, employees, customFields, onClose, onSave }) {
                 value={formData.assignedToEmployeeId}
                 onChange={handleInputChange}
                 required
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-indigo-500"
+                disabled={!formData.department}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-slate-100"
               >
-                <option value="">Select employee</option>
-                {employees.map(emp => (
+                <option value="">
+                  {!formData.department ? "Select department first" : "Select employee"}
+                </option>
+                {filteredEmployees.map(emp => (
                   <option key={emp.id} value={emp.id}>
-                    {emp.firstName} {emp.lastName}
+                    {emp.firstName} {emp.lastName} ({emp.departmentName})
                   </option>
                 ))}
               </select>
+              {formData.department && filteredEmployees.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  No employees found in {formData.department} department
+                </p>
+              )}
             </div>
           </div>
 

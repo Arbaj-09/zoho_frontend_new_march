@@ -10,7 +10,8 @@ class WebSocketService {
     this.listeners = {
       attendance: [],
       task: [],
-      punch: []
+      punch: [],
+      adminNotification: []
     };
   }
 
@@ -38,7 +39,7 @@ class WebSocketService {
         });
 
         this.client.onConnect = (frame) => {
-          console.log('WebSocket connected:', frame);
+          console.log('WebSocket connected successfully:', frame);
           this.isConnected = true;
           this.isConnecting = false;
           
@@ -48,11 +49,11 @@ class WebSocketService {
         };
 
         this.client.onStompError = (frame) => {
-          console.error('WebSocket error:', frame);
+          console.error('WebSocket STOMP error:', frame);
           this.isConnected = false;
           this.isConnecting = false;
           this.cleanupSubscriptions();
-          reject(frame);
+          reject(new Error('WebSocket connection failed'));
         };
 
         this.client.onDisconnect = (frame) => {
@@ -60,13 +61,20 @@ class WebSocketService {
           this.isConnected = false;
           this.isConnecting = false;
           this.cleanupSubscriptions();
+          
+          // Only try to reconnect if it wasn't a manual disconnect
+          if (!frame.wasClean) {
+            console.log('WebSocket disconnected unexpectedly, will retry...');
+          }
         };
 
         this.client.activate();
       } catch (error) {
         console.error('WebSocket connection error:', error);
         this.isConnecting = false;
-        reject(error);
+        // Don't reject immediately - allow app to work even if WebSocket fails
+        console.warn('WebSocket failed to connect, app will continue without real-time features');
+        resolve(); // Resolve anyway so app doesn't break
       }
     });
   }
@@ -110,6 +118,17 @@ class WebSocketService {
         }
       });
       this.subscriptions.set('punch', punchSub);
+
+      // ADD THIS: Subscribe to admin notifications
+      const adminSub = this.client.subscribe('/topic/admin-notifications', (message) => {
+        try {
+          const data = JSON.parse(message.body);
+          this.notifyListeners('adminNotification', data);
+        } catch (error) {
+          console.error('Error parsing admin notification:', error);
+        }
+      });
+      this.subscriptions.set('adminNotification', adminSub);
 
     } catch (error) {
       console.error('Error subscribing to topics:', error);
@@ -187,7 +206,8 @@ class WebSocketService {
       listenerCounts: {
         attendance: this.listeners.attendance.length,
         task: this.listeners.task.length,
-        punch: this.listeners.punch.length
+        punch: this.listeners.punch.length,
+        adminNotification: this.listeners.adminNotification.length
       }
     };
   }

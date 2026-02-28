@@ -6,7 +6,7 @@ import { backendApi } from "@/services/api";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import DynamicFieldsSection from "@/components/DynamicFieldsSection";
 import CreatableCategorySelect from "@/components/CreatableCategorySelect";
-import { getLoggedInUser } from "@/utils/auth";
+import { getCurrentUserName, getCurrentUserRole, getCurrentUserId } from "@/utils/userUtils";
 import {
   fetchFieldDefinitions,
   fetchFieldValues,
@@ -17,14 +17,19 @@ import {
 import { toast } from "react-toastify";
 
 export default function ProductsPage() {
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
+  const userId = getCurrentUserId();
+  
   const [userData, setUserData] = useState(null);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
 
   useEffect(() => {
-    const user = getLoggedInUser();
-    setUserData(user);
-  }, []);
+    // ✅ FIXED: Use dynamic user data
+    setUserData({ id: userId, name: userName, role: userRole });
+  }, [userId, userName, userRole]);
 
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);

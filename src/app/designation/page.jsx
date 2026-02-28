@@ -5,9 +5,14 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Pencil, Trash2, Plus, Search, Briefcase, MoreVertical } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { backendApi } from '@/services/api';
+import { getCurrentUserName, getCurrentUserRole } from '@/utils/userUtils';
 
 export default function DesignationPage() {
   const router = useRouter();
+  
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
   const [designations, setDesignations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -58,8 +63,8 @@ export default function DesignationPage() {
       header={{
         project: "Organization Management",
         user: {
-          name: "Admin User",
-          role: "Administrator"
+          name: userName,
+          role: userRole
         },
         notifications: [],
         tabs: [

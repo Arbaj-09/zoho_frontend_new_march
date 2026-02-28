@@ -4,6 +4,7 @@ import AddEmployeePage from "../employees/add/page";
 import { useEffect, useState } from "react";
 import { backendApi } from "@/services/api";
 import { useRouter } from "next/navigation";
+import { getCurrentUserName, getCurrentUserRole } from "@/utils/userUtils";
 
 // Modal wrapper component
 function AddEmployeeModal({ onClose, editingEmployee }) {
@@ -27,16 +28,89 @@ function AddEmployeeModal({ onClose, editingEmployee }) {
 }
 
 export default function OrganizationPage() {
+    // Department name mapping to fix incorrect database values
+    const getCorrectDepartmentName = (deptName) => {
+        const departmentMapping = {
+            'ppo': 'PPO',
+            'pte': 'PPE', // Assuming pte should be PPE
+            'ppe': 'PPE',
+            'PPO': 'PPO',
+            'PPE': 'PPE',
+            'PSD': 'PSD',
+            'HLC': 'HLC',
+            'ROP': 'ROP'
+        };
+        return departmentMapping[deptName] || deptName || "-";
+    };
+
+    // SAFE: Normalize employee data before passing to form - use DTO fields only
+    const normalizeEmployeeForForm = (e) => ({
+      id: e?.id ?? null,
+
+      firstName: e?.firstName ?? '',
+      lastName: e?.lastName ?? '',
+      email: e?.email ?? '',
+      phone: e?.phone ?? '',
+      employeeId: e?.employeeId ?? '',
+      userId: e?.userId ?? '',
+
+      // ✅ ROLE
+      roleId:
+        typeof e?.role === 'object' && e.role !== null
+          ? e.role.id
+          : (e?.roleId ?? ''),
+
+      // ✅ TEAM
+      teamId:
+        e?.roleName === 'TL'
+          ? (e?.teamName ?? '')   // TL: string from teamName
+          : (e?.teamId ?? ''),    // Non-TL: numeric teamId
+
+      // DEPARTMENT (CRITICAL FIX)
+      // TL → use departmentName (string like "PPO")
+      // Others → use departmentId (numeric)
+      departmentId:
+        e?.roleName === 'TL'
+          ? (e?.departmentName ?? '')   // TL: string from departmentName
+          : (e?.departmentId ?? ''),    // Non-TL: numeric departmentId
+
+      // DESIGNATION
+      designationId:
+        e?.roleName === 'TL'
+          ? (e?.designationName ?? '')   // TL: string from designationName
+          : (e?.designationId ?? ''),    // Non-TL: numeric designationId
+
+      // ✅ REPORTING MANAGER
+      reportingManagerId:
+        e?.roleName === 'TL'
+          ? (e?.reportingManagerName ?? '')   // TL: string from reportingManagerName
+          : (e?.reportingManagerId ?? ''),    // Non-TL: numeric reportingManagerId
+
+      status: e?.status ?? 'ACTIVE',
+      gender: e?.gender ?? '',
+      dateOfBirth: e?.dateOfBirth ?? '',
+      hiredAt: e?.hiredAt ?? '',
+
+      attendanceAllowed: e?.attendanceAllowed ?? true,
+      organizationId: e?.organizationId ?? 1,
+
+      customTeam: e?.customTeam ?? '',
+      customDesignation: e?.customDesignation ?? '',
+
+      profileImageUrl: e?.profileImageUrl ?? null
+    });
+
     const [openAddForm, setOpenAddForm] = useState(false);
     const [employees, setEmployees] = useState([]);
     const [editingEmployee, setEditingEmployee] = useState(null);
-    const [forceUpdate, setForceUpdate] = useState(0);
-    const [tableKey, setTableKey] = useState(0);
-    const [shouldRemount, setShouldRemount] = useState(true);
     const [emailModalOpen, setEmailModalOpen] = useState(false);
     const [selectedEmployee, setSelectedEmployee] = useState(null);
     const [emailStatus, setEmailStatus] = useState('idle'); // idle, sending, success, error
     const [emailMessage, setEmailMessage] = useState('');
+
+    // ✅ FIXED: Get dynamic user data
+    const userName = getCurrentUserName();
+    const userRole = getCurrentUserRole();
 
     // Handle employee deletion
     const handleDeleteEmployee = async (employeeId) => {
@@ -89,7 +163,10 @@ export default function OrganizationPage() {
 
     // Handle employee edit
     const handleEditEmployee = (employee) => {
-        setEditingEmployee(employee.originalData || employee);
+        // Use originalData which contains DTO fields (departmentId, roleId, etc.)
+        const normalizedEmployee = normalizeEmployeeForForm(employee.originalData || employee);
+        console.log('Normalized employee for edit:', normalizedEmployee);
+        setEditingEmployee(normalizedEmployee);
         setOpenAddForm(true);
     };
 
@@ -172,6 +249,7 @@ export default function OrganizationPage() {
             console.log('Received employee data:', data?.length, 'employees');
             console.log('Raw API data sample:', data?.[0]); // Debug first employee
             console.log('Full first employee object:', JSON.stringify(data?.[0], null, 2)); // Full object debug
+            
             const mapped = (data || []).map((e) => {
                 console.log('Mapping employee:', e.id, 'roleName:', e.roleName, 'teamName:', e.teamName, 'designationName:', e.designationName);
                 const name = e.firstName
@@ -191,6 +269,7 @@ export default function OrganizationPage() {
                     joiningDate: e.hiredAt,
                     reportingManager: e.reportingManagerName || "-",
                     team: e.teamName || "-",
+                    department: getCorrectDepartmentName(e.departmentName), // ✅ FIXED: Use departmentName with mapping
                     designation: e.customDesignation || e.designationName || "-",
                     role: e.roleName || "-",
                     status: e.status || "-",
@@ -210,99 +289,23 @@ export default function OrganizationPage() {
             });
 
             console.log('Setting employees state with', mapped.length, 'employees');
-            console.log('Mapped data sample:', mapped[0]); // Debug first mapped employee
-            console.log('Employee 1 mapped data:', mapped.find(e => e.id === 1)); // Debug employee 1 specifically
-            
-            // Force React to detect state change by creating a new array reference
-            const newEmployees = [...mapped];
-            console.log('About to set employees state with new data:', newEmployees[0]);
-            setEmployees(newEmployees);
-            
-            // Force re-render by updating a dummy state
-            setForceUpdate(prev => prev + 1);
-            
-            // Additional force re-render using setTimeout
-            setTimeout(() => {
-                console.log('Force re-render attempt 1');
-                setEmployees([...newEmployees]);
-                setForceUpdate(prev => prev + 1);
-            }, 100);
-            
-            // Force complete re-render with key change
-            setTimeout(() => {
-                console.log('Force re-render attempt 2 with key change');
-                const employeesWithKeys = newEmployees.map(emp => ({...emp, key: `${emp.id}-${Date.now()}`}));
-                setEmployees(employeesWithKeys);
-                setForceUpdate(prev => prev + 1);
-            }, 200);
-            
-            // Final force re-render with DOM manipulation and page refresh fallback
-            setTimeout(() => {
-                console.log('Force re-render attempt 3');
-                setEmployees([...newEmployees]);
-                setForceUpdate(prev => prev + 1);
-                setTableKey(prev => prev + 1); // Force complete table re-render
-                
-                // Force DOM update by manipulating the table directly
-                setTimeout(() => {
-                    const table = document.querySelector('table');
-                    if (table) {
-                        table.style.display = 'none';
-                        setTimeout(() => {
-                            table.style.display = '';
-                        }, 10);
-                    }
-                }, 50);
-                
-                // Force complete component re-mount
-                setTimeout(() => {
-                    console.log('Forcing complete component re-mount...');
-                    setShouldRemount(false);
-                    setTimeout(() => {
-                        setShouldRemount(true);
-                    }, 10);
-                }, 100);
-                
-                // Final fallback - force page refresh if table still doesn't update
-                setTimeout(() => {
-                    console.log('Final fallback - checking if table updated...');
-                    const currentEmployee = employees.find(e => e.id === 1);
-                    if (currentEmployee && currentEmployee.name !== 'Alice Table Fix Smith Table Fix') {
-                        console.log('Table not updated, forcing page refresh...');
-                        window.location.reload();
-                    }
-                }, 1000);
-            }, 300);
+            setEmployees(mapped);
         } catch (err) {
             console.error("Failed to load employees", err);
         }
     };
 
     useEffect(() => {
-        let isMounted = true;
         loadEmployees();
-
-        return () => {
-            isMounted = false;
-        };
     }, []);
-
-    // Monitor employees state changes and force re-render
-    useEffect(() => {
-        console.log('Employees state changed:', employees.length, 'employees');
-        console.log('Force update count:', forceUpdate);
-        if (employees.length > 0) {
-            console.log('Current employee 1 in state:', employees.find(e => e.id === 1));
-        }
-    }, [employees, forceUpdate]);
 
     return (
         <DashboardLayout
             header={{
                 project: "Organization Management",
                 user: {
-                    name: "Admin User",
-                    role: "Administrator"
+                    name: userName,
+                    role: userRole
                 },
                 tabs: [
                           { key: "employees", label: "Employees", href: "/organization" },
@@ -364,10 +367,9 @@ export default function OrganizationPage() {
 
                 </div>
 
-                {shouldRemount && (
-                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" key={tableKey}>
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                     <div className="overflow-x-auto">
-                        <table key={forceUpdate} className="min-w-full divide-y divide-slate-200">
+                        <table className="min-w-full divide-y divide-slate-200">
                             <thead className="bg-slate-50">
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
@@ -383,6 +385,7 @@ export default function OrganizationPage() {
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Joining Date</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Reporting Manager</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Team</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Department</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Role</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Designation</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Leave Policy</th>
@@ -400,7 +403,7 @@ export default function OrganizationPage() {
                             </thead>
                             <tbody className="divide-y divide-slate-200 bg-white">
                                 {employees.map((employee) => (
-                                    <tr key={employee.key || employee.id} className="hover:bg-slate-50">
+                                    <tr key={employee.id} className="hover:bg-slate-50">
                                         <td className="whitespace-nowrap px-6 py-4">
                                             <input
                                                 type="checkbox"
@@ -465,18 +468,33 @@ export default function OrganizationPage() {
                                             {new Date(employee.joiningDate).toLocaleDateString()}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.reportingManager}
+                                            {typeof employee.reportingManager === 'object'
+                                              ? employee.reportingManager.name
+                                              : employee.reportingManager || '-'}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4">
                                             <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
-                                                {employee.team}
+                                                {typeof employee.team === 'object'
+                                                  ? employee.team.name
+                                                  : employee.team || '-'}
+                                            </span>
+                                        </td>
+                                        <td className="whitespace-nowrap px-6 py-4">
+                                            <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800">
+                                                {typeof employee.department === 'object'
+                                                  ? employee.department.name
+                                                  : employee.department || '-'}
                                             </span>
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.role}
+                                            {typeof employee.role === 'object'
+                                              ? employee.role.name
+                                              : employee.role || '-'}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.designation}
+                                            {typeof employee.designation === 'object'
+                                              ? employee.designation.name
+                                              : employee.designation || '-'}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
                                             {employee.leavePolicy}
@@ -583,7 +601,6 @@ export default function OrganizationPage() {
                         </div>
                     </div>
                 </div>
-                )}
             </div>
             {openAddForm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

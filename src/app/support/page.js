@@ -5,8 +5,12 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
+import { getCurrentUserName, getCurrentUserRole } from '@/utils/userUtils';
 
 export default function SupportPage() {
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newTicket, setNewTicket] = useState({ subject: '', description: '', priority: 'medium' });

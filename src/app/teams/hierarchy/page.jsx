@@ -5,9 +5,14 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useRouter } from 'next/navigation';
 import { backendApi } from '@/services/api';
 import { ArrowLeft, Users, Building2, User, ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { getCurrentUserName, getCurrentUserRole } from '@/utils/userUtils';
 
 export default function AllTeamsHierarchy() {
   const router = useRouter();
+  
+  // ✅ FIXED: Get dynamic user data
+  const userName = getCurrentUserName();
+  const userRole = getCurrentUserRole();
   
   const [teams, setTeams] = useState([]);
   const [hierarchy, setHierarchy] = useState([]);
@@ -231,8 +236,8 @@ export default function AllTeamsHierarchy() {
   return (
     <DashboardLayout
       header={{
-        project: "Organization Management",
-        user: { name: "Admin User", role: "Administrator" },
+        project: "Team Management",
+        user: { name: userName, role: userRole },
         notifications: [],
         tabs: [
           { key: "employees", label: "Employees", href: "/organization" },

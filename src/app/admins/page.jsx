@@ -8,6 +8,11 @@ export default function Admins() {
     const [openAddForm, setOpenAddForm] = useState(false);
     const [employees, setEmployees] = useState([]);
 
+    // ✅ FIXED: Get dynamic user data from localStorage
+    const userData = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("user_data") || "{}") : {};
+    const userRole = typeof window !== "undefined" ? localStorage.getItem("user_role") || "ADMIN" : "ADMIN";
+    const userName = userData.firstName ? `${userData.firstName} ${userData.lastName || ""}`.trim() : "Admin User";
+
     useEffect(() => {
         let isMounted = true;
 
@@ -68,8 +73,8 @@ export default function Admins() {
             header={{
                 project: "Organization Management",
                 user: {
-                    name: "Admin User",
-                    role: "Administrator"
+                    name: userName,
+                    role: userRole
                 },
                 notifications: [],
                 tabs: [

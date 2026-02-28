@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
@@ -23,9 +23,82 @@ import {
   Calendar,
   Plus,
   FileText,
+  Edit2,
 } from "lucide-react";
 
 import { cn } from "@/utils/helpers";
+import { getAuthUser } from "@/utils/authUser";
+
+// ✅ UNIFIED: Use single source of truth for user data
+const getCurrentUser = () => {
+  const user = getAuthUser();
+  return user || { role: "USER", department: null, id: null };
+};
+
+// ✅ SAFE: Department-aware sidebar filtering
+const filterSectionsByRoleAndDepartment = (sections, user) => {
+  if (!user?.role) return sections;
+  
+  // Define department-aware items (TL needs department to access these)
+  const departmentItems = [
+    "unolo-dashboard", // TL gets department-wise dashboard
+    "zoho-customers", // TL sees only their department's customers
+    "zoho-products", // TL sees only their department's products
+    "address-edit-requests", // TL sees only their department's requests
+    "tasks" // TL sees only their department's tasks
+  ];
+  
+  // Define role restrictions
+  const roleRestrictedItems = {
+    "address-edit-requests": ["ADMIN", "MANAGER", "TL"], // TL can access address edit requests
+    "tasks": ["ADMIN", "MANAGER", "TL"], // TL can access tasks
+    "zoho-customers": ["ADMIN", "MANAGER", "TL"], // TL can access customers (department-filtered)
+    "zoho-products": ["ADMIN", "MANAGER", "TL"], // TL can access products (department-filtered)
+    "bank": ["ADMIN", "MANAGER", "TL"], // TL can access bank
+    "unolo-dashboard": ["ADMIN", "MANAGER", "TL"], // TL gets department-wise dashboard
+  };
+  
+  // Define admin/manager only sections (TL should NOT see these)
+  const adminManagerOnlyItems = [
+    "unolo-attendance",
+    "unolo-leave", 
+    "unolo-organization",
+    "unolo-form",
+    "unolo-order",
+    "unolo-sites",
+    "expenses-overview",
+    "expenses-invoices"
+  ];
+  
+  return sections.map(section => {
+    // Filter items based on role and department
+    const filteredItems = section.items.filter(item => {
+      // 🔐 ROLE CHECK
+      if (roleRestrictedItems[item.key] && !roleRestrictedItems[item.key].includes(user.role)) {
+        return false;
+      }
+      
+      // 🚫 BLOCK ADMIN/MANAGER ONLY ITEMS FOR TL
+      if (adminManagerOnlyItems.includes(item.key) && user.role === "TL") {
+        return false;
+      }
+      
+      // 🏢 DEPARTMENT CHECK (ADMIN/MANAGER bypass)
+      if (
+        departmentItems.includes(item.key) &&
+        !["ADMIN", "MANAGER"].includes(user.role) &&
+        !user.department
+      ) {
+        return false;
+      }
+      
+      return true;
+    });
+    
+    // Return section with filtered items, or skip if empty
+    return filteredItems.length > 0 ? { ...section, items: filteredItems } : null;
+  }).filter(section => section !== null);
+};
 
 function NavIcon({ name, className }) {
   const Icon =
@@ -65,6 +138,8 @@ function NavIcon({ name, className }) {
       ? Settings
       : name === "plus"
       ? Plus
+      : name === "edit"
+      ? Edit2
       : Package;
 
   return <Icon className={cn("h-5 w-5", className)} aria-hidden="true" />;
@@ -90,6 +165,22 @@ export default function Sidebar({
   onNavigate, // ✅ (MOBILE close callback)
 }) {
   const pathname = usePathname();
+  
+  // ✅ HYDRATION-SAFE: State to track if client is mounted
+  const [isMounted, setIsMounted] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  
+  // ✅ HYDRATION-SAFE: Only access localStorage after mount
+  useEffect(() => {
+    setIsMounted(true);
+    setCurrentUser(getCurrentUser());
+  }, []);
+  
+  // ✅ SAFE: Apply department-aware filtering only after hydration
+  const filteredSections = useMemo(() => 
+    isMounted ? filterSectionsByRoleAndDepartment(sections, currentUser) : sections,
+    [sections, currentUser, isMounted]
+  );
 
   const accentStyles = useMemo(
     () => ({
@@ -229,7 +320,7 @@ export default function Sidebar({
 
         {/* Menu - scrollable */}
         <nav className="relative z-10 flex-1 overflow-y-auto px-2 pb-3 pt-3 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
-          {sections?.map((section) => {
+          {filteredSections?.map((section) => {
             const isOpen = openSection === section.key;
 
             return (
