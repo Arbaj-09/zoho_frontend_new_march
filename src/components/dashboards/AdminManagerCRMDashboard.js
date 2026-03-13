@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { 
   BarChart3, 
   PieChart, 
@@ -15,60 +15,78 @@ import {
   Eye
 } from "lucide-react";
 import { backendApi } from "@/services/api";
+import { getCurrentUserName, getCurrentUserRole } from "@/utils/userUtils";
+import { broadcastActivity, createActivity } from "@/utils/activityBus";
 
 // ✅ CHART COMPONENTS
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend as RechartsLegend } from 'recharts';
 import { ChevronDown } from 'lucide-react';
 import { useStages } from '@/context/StageContext';
+import { departmentApiService } from "@/services/departmentApi.service";
 
 // ✅ FILTER COLORS
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
 
-// ✅ Funnel Chart Component - Proper Dynamic Funnel with Real Stages
+// ✅ Funnel Chart Component - Dynamic with Real Data
 const FunnelChart = ({ data, department, stages }) => {
-  if (!data || data.length === 0) return null;
-  
-  // Use real stages if available, otherwise use data
-  const displayData = stages && stages.length > 0 
-    ? stages.map(stage => ({
-        stage: stage.stageName,
-        count: data.find(d => d.stage === stage.stageCode)?.count || 0
-      })).filter(item => item.count > 0) // Only show stages with data
-    : data;
+  // Always show funnel, even with 0 counts
+  if (!stages || stages.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8">
+        <div className="text-gray-500 text-center">
+          <div className="text-lg font-medium mb-2">No stages configured</div>
+          <div className="text-sm">Please configure stages for {department || 'this department'}</div>
+        </div>
+      </div>
+    );
+  }
 
-  if (displayData.length === 0) return null;
-  
-  const maxCount = Math.max(...displayData.map(d => d.count));
+  // Build display data - show ALL stages even if count is 0
+  const displayData = stages.map(stage => ({
+    stage: stage.stageName,
+    count: data.find(d => d.stage === stage.stageCode)?.count || 0
+  }));
+
+  // Additional safety check
+  if (!displayData || displayData.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8">
+        <div className="text-gray-500 text-center">
+          <div className="text-lg font-medium mb-2">No display data available</div>
+          <div className="text-sm">Department: {department || 'Unknown'}</div>
+        </div>
+      </div>
+    );
+  }
+
   const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#06B6D4', '#84CC16'];
   
-  // Dynamic height based on number of stages
-  const svgHeight = Math.max(400, displayData.length * 60);
+  // Dynamic height based on number of stages - smaller size
+  const svgHeight = Math.max(250, displayData.length * 40);
   const stageHeight = svgHeight / displayData.length;
   
   return (
-    <div className="flex flex-col items-center justify-center py-4">
-      <svg width="100%" height={svgHeight} viewBox={`0 0 400 ${svgHeight}`} className="max-w-lg">
+    <div className="flex flex-col items-center justify-center py-2">
+      <svg width="100%" height={svgHeight} viewBox={`0 0 300 ${svgHeight}`} className="max-w-xs">
         {displayData.map((stage, index) => {
-          const widthPercentage = (stage.count / maxCount) * 100;
           const y = index * stageHeight;
           
-          // Create proper funnel shape - smooth transition between stages
-          const currentWidth = 300 * (widthPercentage / 100);
-          const nextWidth = index < displayData.length - 1 
-            ? 300 * ((displayData[index + 1].count / maxCount) * 100 / 100)
-            : currentWidth * 0.3; // Bottom is narrower
+          // Fixed funnel shape based on stage index, NOT count
+          const totalStages = displayData.length;
+          const maxWidth = 220; // Reduced from 300
+          const minWidth = 40;  // Reduced from 60
+          const step = (maxWidth - minWidth) / (totalStages - 1);
           
-          const centerX = 200;
+          const currentWidth = maxWidth - index * step;
+          const nextWidth = index < totalStages - 1 
+            ? maxWidth - (index + 1) * step
+            : minWidth;
           
-          // Create smooth trapezoid path
-          const path = `
-            M ${centerX - currentWidth/2} ${y}
-            L ${centerX + currentWidth/2} ${y}
-            L ${centerX + nextWidth/2} ${y + stageHeight}
-            L ${centerX - nextWidth/2} ${y + stageHeight}
-            Z
-          `;
+          const centerX = 150; // Adjusted for 300 viewBox width
+          
+          // Create smooth trapezoid path - single line to avoid Turbopack parsing issues
+          const path = `M ${centerX - currentWidth/2} ${y} L ${centerX + currentWidth/2} ${y} L ${centerX + nextWidth/2} ${y + stageHeight} L ${centerX - nextWidth/2} ${y + stageHeight} Z`;
           
           return (
             <g key={stage.stage}>
@@ -89,13 +107,7 @@ const FunnelChart = ({ data, department, stages }) => {
               
               {/* Add 3D effect - side shading */}
               <path
-                d={`
-                  M ${centerX + currentWidth/2} ${y}
-                  L ${centerX + currentWidth/2 + 8} ${y}
-                  L ${centerX + nextWidth/2 + 8} ${y + stageHeight}
-                  L ${centerX + nextWidth/2} ${y + stageHeight}
-                  Z
-                `}
+                d={`M ${centerX + currentWidth/2} ${y} L ${centerX + currentWidth/2 + 8} ${y} L ${centerX + nextWidth/2 + 8} ${y + stageHeight} L ${centerX + nextWidth/2} ${y + stageHeight} Z`}
                 fill="rgba(0,0,0,0.15)"
               />
               
@@ -106,7 +118,7 @@ const FunnelChart = ({ data, department, stages }) => {
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill="white"
-                fontSize="14"
+                fontSize="12" // Reduced from 14
                 fontWeight="bold"
               >
                 {stage.count}
@@ -114,12 +126,12 @@ const FunnelChart = ({ data, department, stages }) => {
               
               {/* Stage label - positioned outside */}
               <text
-                x={centerX + Math.max(currentWidth, nextWidth)/2 + 15}
+                x={centerX + Math.max(currentWidth, nextWidth)/2 + 10} // Reduced spacing
                 y={y + stageHeight/2}
                 textAnchor="start"
                 dominantBaseline="middle"
                 fill="#374151"
-                fontSize="12"
+                fontSize="10" // Reduced from 12
                 fontWeight="500"
               >
                 {stage.stage}
@@ -133,22 +145,19 @@ const FunnelChart = ({ data, department, stages }) => {
 };
 
 export default function AdminManagerCRMDashboard({ userName, userRole }) {
-  // ✅ Use real stage data
-  const { departments, getStagesForDepartment, fetchStagesForDepartment } = useStages();
+  // ✅ Get current logged-in user name for activities
+  const currentUserName = getCurrentUserName();
+  const currentUserRole = getCurrentUserRole();
   
-  // ✅ FILTER STATES
-  const [filters, setFilters] = useState({
-    dateRange: { start: '', end: '' },
-    department: '',
-    taluka: '',
-    district: '',
-    bankName: '',
-    branchName: '',
-    customerName: '',
-    allocation: ''
-  });
-
+  // ✅ Use real stage data
+  const { departments, getStagesForDepartment, fetchStagesForDepartment, fetchDepartments } = useStages();
+  
   // ✅ DATA STATES
+  const [customers, setCustomers] = useState([]);
+  const [deals, setDeals] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [bankRecords, setBankRecords] = useState([]);
   const [chartData, setChartData] = useState({
     departmentByAmount: [],
     yashrqjBranchByAmount: [],
@@ -160,7 +169,7 @@ export default function AdminManagerCRMDashboard({ userName, userRole }) {
     funnelData: []
   });
 
-  const [selectedDepartment, setSelectedDepartment] = useState('ACCOUNT');
+  const [selectedDepartment, setSelectedDepartment] = useState('ALL');
 
   const [tableData, setTableData] = useState([]);
   const [pagination, setPagination] = useState({
@@ -171,210 +180,354 @@ export default function AdminManagerCRMDashboard({ userName, userRole }) {
   });
 
   const [loading, setLoading] = useState(false);
-  const [filterOptions, setFilterOptions] = useState({
-    departments: [],
-    talukas: [],
-    districts: [],
-    banks: [],
-    branches: [],
-    customers: [],
-    allocations: []
+  const [filters, setFilters] = useState({
+    dateRange: { start: '', end: '' },
+    department: '',
+    taluka: '',
+    district: '',
+    bankName: '',
+    branchName: '',
+    customerName: '',
+    allocation: ''
   });
 
-  // ✅ FETCH DASHBOARD DATA
+  // ✅ DYNAMIC FUNNEL COUNTS - O(n) performance with useMemo
+  const funnelCounts = useMemo(() => {
+    console.log('🔥 [DASHBOARD] Computing funnel counts for department:', selectedDepartment);
+    
+    // Get stages for selected department
+    let stages = getStagesForDepartment(selectedDepartment === 'ALL' ? departments[0] : selectedDepartment);
+    
+    // Fallback stages for ACCOUNT department
+    if (!stages || stages.length === 0) {
+      if (selectedDepartment === 'ACCOUNT' || (selectedDepartment === 'ALL' && departments[0] === 'ACCOUNT')) {
+        console.log('🔥 [DASHBOARD] Using fallback stages for ACCOUNT department');
+        stages = [
+          { stageCode: 'INVENTORY', stageName: 'Inventory', stageOrder: 1 },
+          { stageCode: 'MAKE_BILL', stageName: 'Make Bill', stageOrder: 2 },
+          { stageCode: 'BILL_SUBMIT', stageName: 'Bill Submit', stageOrder: 3 },
+          { stageCode: 'BILL_FOLLOWUP', stageName: 'Bill Followup', stageOrder: 4 },
+          { stageCode: 'BILL_PASS', stageName: 'Bill Pass', stageOrder: 5 },
+          { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
+          { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
+        ];
+      } else {
+        // Generic fallback stages for other departments
+        console.log('🔥 [DASHBOARD] Using generic fallback stages for department:', selectedDepartment);
+        stages = [
+          { stageCode: 'LEAD', stageName: 'Lead', stageOrder: 1 },
+          { stageCode: 'CONTACTED', stageName: 'Contacted', stageOrder: 2 },
+          { stageCode: 'QUALIFIED', stageName: 'Qualified', stageOrder: 3 },
+          { stageCode: 'PROPOSAL', stageName: 'Proposal', stageOrder: 4 },
+          { stageCode: 'NEGOTIATION', stageName: 'Negotiation', stageOrder: 5 },
+          { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
+          { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
+        ];
+      }
+    }
+
+    // Filter deals by department
+    const filteredDeals = selectedDepartment === 'ALL' 
+      ? deals 
+      : deals.filter(d => d.department === selectedDepartment);
+
+    console.log('🔥 [DASHBOARD] Filtered deals:', filteredDeals.length, 'for department:', selectedDepartment);
+
+    // O(n) stage counting using stageMap
+    const stageMap = {};
+    stages.forEach(stage => {
+      stageMap[stage.stageCode] = 0;
+    });
+
+    filteredDeals.forEach(deal => {
+      const stageCode = deal.stageCode || deal.stage;
+      if (stageMap.hasOwnProperty(stageCode)) {
+        stageMap[stageCode]++;
+      }
+    });
+
+    // Convert to array format
+    const result = stages.map(stage => ({
+      stage: stage.stageCode,
+      count: stageMap[stage.stageCode] || 0
+    }));
+
+    console.log('🔥 [DASHBOARD] Funnel counts computed:', result);
+    return result;
+  }, [selectedDepartment, deals, departments, getStagesForDepartment]);
+
+  // ✅ DYNAMIC DASHBOARD STATS - useMemo for performance
+  const dashboardStats = useMemo(() => {
+    if (!deals.length) return null;
+
+    const stats = {
+      totalDeals: deals.length,
+      totalValue: deals.reduce((sum, deal) => sum + (Number(deal.valueAmount) || 0), 0),
+      departmentStats: {},
+      pipelineCounts: {}
+    };
+
+    // Calculate department-wise stats
+    departments.forEach(dept => {
+      const deptDeals = deals.filter(d => d.department === dept);
+      stats.departmentStats[dept] = {
+        count: deptDeals.length,
+        value: deptDeals.reduce((sum, deal) => sum + (Number(deal.valueAmount) || 0), 0)
+      };
+    });
+
+    console.log('🔥 [DASHBOARD] Dashboard stats computed:', stats);
+    return stats;
+  }, [deals, departments]);
+
+  useEffect(() => {
+    if (customers.length > 0 || deals.length > 0 || tasks.length > 0 || 
+        products.length > 0 || bankRecords.length > 0) {
+      console.log('🔥 [ADMIN DASHBOARD] Data loaded - activities section removed');
+    }
+  }, [customers, deals, tasks, products, bankRecords]);
+
+  // 🔥 NEW: Fetch products for deals to calculate accurate values (like customers page)
+  const fetchDealProducts = async (dealId) => {
+    try {
+      const res = await backendApi.get(`/deals/${dealId}/products`);
+      const list = Array.isArray(res?.content) ? res.content : Array.isArray(res) ? res : [];
+      
+      // Adapt products like the customers page does
+      const adaptedProducts = list.map((ln) => {
+        const price = Number(ln.price ?? ln.unitPrice ?? 0) || 0;
+        const qty = Number(ln.qty ?? ln.quantity ?? 1) || 1;
+        const discount = Number(ln.discount ?? ln.discountAmount ?? 0) || 0;
+        const tax = Number(ln.tax ?? ln.taxAmount ?? 0) || 0;
+        
+        return {
+          id: ln.id,
+          dealProductId: ln.id,
+          productId: ln.productId ?? null,
+          name: ln.productName || ln.name || "Unknown Product",
+          price,
+          qty,
+          discount,
+          tax,
+          finalAmount: price * qty - discount + tax
+        };
+      });
+      
+      return adaptedProducts;
+    } catch (err) {
+      console.error(`Failed to fetch products for deal ${dealId}:`, err);
+      return [];
+    }
+  };
+
+  // 🔥 NEW: Calculate grand total from products (same as customers page)
+  const calculateGrandTotal = (products) => {
+    return products.reduce(
+      (sum, p) => sum + (p.price * p.qty - (p.discount || 0) + (p.tax || 0)),
+      0
+    );
+  };
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      console.log('Fetching CRM Dashboard data for:', userRole);
+      console.log('🔥 [DASHBOARD] Fetching all system data sources for:', userRole);
       
-      // ✅ Use dummy data for now - replace with actual API calls later
-      const dummyChartData = {
-        departmentByAmount: [
-          { department: 'PPO', amount: 4500000 },
-          { department: 'PSD', amount: 3200000 },
-          { department: 'PPE', amount: 2800000 },
-          { department: 'HLC', amount: 2100000 },
-          { department: 'ACCOUNT', amount: 1900000 },
-          { department: 'ROP', amount: 1500000 }
-        ],
-        yashrqjBranchByAmount: [
-          { branch: 'Mumbai Branch', amount: 3200000 },
-          { branch: 'Pune Branch', amount: 2800000 },
-          { branch: 'Nagpur Branch', amount: 2100000 },
-          { branch: 'Nashik Branch', amount: 1800000 },
-          { branch: 'Aurangabad Branch', amount: 1500000 },
-          { branch: 'Solapur Branch', amount: 1200000 }
-        ],
-        distByAmount: [
-          { name: 'Mumbai', amount: 2000000 },
-          { name: 'Pune', amount: 1500000 },
-          { name: 'Nashik', amount: 800000 },
-          { name: 'Nagpur', amount: 600000 }
-        ],
-        amountByClosingDate: [
-          { closingDate: '2024-01', PPO: 500000, PSD: 300000, PPE: 200000 },
-          { closingDate: '2024-02', PPO: 600000, PSD: 400000, PPE: 300000 },
-          { closingDate: '2024-03', PPO: 400000, PSD: 500000, PPE: 100000 }
-        ],
-        contactWiseAmount: [
-          { contactName: 'Rajesh Kumar', amount: 500000 },
-          { contactName: 'Priya Sharma', amount: 350000 },
-          { contactName: 'Amit Patel', amount: 280000 },
-          { contactName: 'Sneha Reddy', amount: 220000 }
-        ],
-        departmentWiseStage: [
-          { department: 'PPO', stageDuration: '5:23:45' },
-          { department: 'PSD', stageDuration: '3:45:12' },
-          { department: 'PPE', stageDuration: '7:12:30' },
-          { department: 'HHD', stageDuration: '4:30:15' }
-        ],
-        bankBranchWiseAmount: [
-          { bankName: 'SBI', amount: 2500000 },
-          { bankName: 'HDFC', amount: 1800000 },
-          { bankName: 'ICICI', amount: 1200000 },
-          { bankName: 'Axis', amount: 800000 }
-        ],
-        funnelData: {
-          'PPO': [
-            { stage: 'NEW_LEAD', count: 120 },
-            { stage: 'DOC_COLLECT', count: 95 },
-            { stage: 'DRAFT', count: 75 },
-            { stage: 'OTH', count: 60 },
-            { stage: 'FILEING', count: 45 },
-            { stage: 'FOLLOWUP', count: 30 },
-            { stage: 'ACCOUNT', count: 15 }
-          ],
-          'HLC': [
-            { stage: 'NEW_LEAD', count: 80 },
-            { stage: 'ELIGIBILITY', count: 65 },
-            { stage: 'DOCUMENTS', count: 50 },
-            { stage: 'PROCESSING', count: 35 },
-            { stage: 'LOAN_APPLICATION', count: 25 },
-            { stage: 'LOAN_SANCTION', count: 18 },
-            { stage: 'ACCOUNT', count: 10 }
-          ],
-          'ACCOUNT': [
-            { stage: 'INVENTORY', count: 100 },
-            { stage: 'MAKE_BILL', count: 85 },
-            { stage: 'BILL_SUBMIT', count: 70 },
-            { stage: 'BILL_FOLLOWUP', count: 55 },
-            { stage: 'BILL_PASS', count: 40 },
-            { stage: 'CLOSE_WIN', count: 25 },
-            { stage: 'CLOSE_LOST', count: 5 }
-          ],
-          'PPE': [
-            { stage: 'NEW_LEAD', count: 90 },
-            { stage: 'PDO', count: 75 },
-            { stage: 'EVALUATION', count: 60 },
-            { stage: 'PPS', count: 45 },
-            { stage: 'REVIEW', count: 30 },
-            { stage: 'DOP', count: 20 },
-            { stage: 'ACCOUNT', count: 12 }
-          ],
-          'PSD': [
-            { stage: 'NEW_LEAD', count: 70 },
-            { stage: 'EVALUATION', count: 58 },
-            { stage: 'BUYER_REGD', count: 46 },
-            { stage: 'EMD_REGD', count: 35 },
-            { stage: 'SALE', count: 24 },
-            { stage: 'REMAINING_AMT', count: 15 },
-            { stage: 'ACCOUNT', count: 8 }
-          ],
-          'ROP': [
-            { stage: 'NEW_LEAD', count: 60 },
-            { stage: 'LOD', count: 50 },
-            { stage: 'RRV', count: 40 },
-            { stage: 'QUOTATION', count: 30 },
-            { stage: 'DRAFTING', count: 20 },
-            { stage: 'REGISTRATION', count: 12 },
-            { stage: 'ACCOUNT', count: 6 }
-          ]
-        }
+      // Fetch all data sources in parallel
+      const [customersData, dealsData, tasksData, productsData, bankData] = await Promise.all([
+        departmentApiService.getCustomers().catch(() => []),
+        backendApi.get("/deals").catch(() => []),
+        backendApi.get("/tasks").catch(() => []),
+        backendApi.get("/products").catch(() => []),
+        backendApi.get("/banks").catch(() => [])
+      ]);
+
+      // Normalize customers data
+      const normalizeList = (res) => {
+        if (!res) return [];
+        if (Array.isArray(res)) return res;
+        if (res.content && Array.isArray(res.content)) return res.content;
+        return [];
       };
 
-      const dummyTableData = [
-        {
-          id: 1,
-          accountNo: 'ACC001',
-          allocationDate: '2024-01-15',
-          agreementNo: 'AGR001',
-          customerName: 'Rajesh Kumar',
-          village: 'Village A',
-          taluka: 'Taluka X',
-          district: 'Mumbai',
-          bankName: 'SBI',
-          branchName: 'Andheri',
-          contactName: 'Rajesh Kumar',
-          department: 'PPO',
-          product: 'Personal Loan',
-          stage: 'Documentation',
-          closingDate: '2024-02-15',
-          amount: 500000,
-          expenses: 5000,
-          remarks: 'Regular customer',
-          accountStatus: 'Active'
-        },
-        {
-          id: 2,
-          accountNo: 'ACC002',
-          allocationDate: '2024-01-20',
-          agreementNo: 'AGR002',
-          customerName: 'Priya Sharma',
-          village: 'Village B',
-          taluka: 'Taluka Y',
-          district: 'Pune',
-          bankName: 'HDFC',
-          branchName: 'Koregaon',
-          contactName: 'Priya Sharma',
-          department: 'PSD',
-          product: 'Home Loan',
-          stage: 'Verification',
-          closingDate: '2024-03-20',
-          amount: 350000,
-          expenses: 3500,
-          remarks: 'New application',
-          accountStatus: 'Active'
+      const normalizedCustomers = normalizeList(customersData);
+      const normalizedDealsList = normalizeList(dealsData);
+      const normalizedTasks = normalizeList(tasksData);
+      const normalizedProducts = normalizeList(productsData);
+      const normalizedBanks = normalizeList(bankData);
+
+      // 🔥 CRITICAL: Calculate deal values from products (like customers page)
+      const normalizedDeals = await Promise.all(normalizedDealsList.map(async (d) => {
+        // Normalize basic fields first
+        const basicDeal = {
+          ...d,
+          clientId: d.clientId ?? d.client_id ?? d.client ?? null,
+          stageCode: d.stage || d.stageCode || "",
+          department: d.department || userRole || 'ALL'
+        };
+
+        // 🔥 NEW: Fetch products and calculate actual value (like customers page)
+        try {
+          const products = await fetchDealProducts(d.id);
+          const calculatedValue = calculateGrandTotal(products);
+          
+          console.log(`🔍 Deal ${d.id} (${d.name}): ${products.length} products, calculated value: ₹${calculatedValue}`);
+          
+          return {
+            ...basicDeal,
+            valueAmount: calculatedValue > 0 ? calculatedValue : d.valueAmount ?? d.value_amount ?? 0,
+            _productCount: products.length,
+            _calculatedValue: calculatedValue
+          };
+        } catch (productErr) {
+          console.warn(`Failed to calculate value for deal ${d.id}, using fallback:`, productErr);
+          return {
+            ...basicDeal,
+            valueAmount: d.valueAmount ?? d.value_amount ?? 0,
+            _productCount: 0,
+            _calculatedValue: 0
+          };
         }
-      ];
+      }));
 
-      const dummyFilterOptions = {
-        departments: ['PPO', 'PSD', 'PPE', 'HHD'],
-        talukas: ['Taluka X', 'Taluka Y', 'Taluka Z'],
-        districts: ['Mumbai', 'Pune', 'Nashik', 'Nagpur'],
-        banks: ['SBI', 'HDFC', 'ICICI', 'Axis'],
-        branches: ['Andheri', 'Koregaon', 'Camp', 'Civil Lines'],
-        customers: ['Rajesh Kumar', 'Priya Sharma', 'Amit Patel', 'Sneha Reddy'],
-        allocations: ['North', 'South', 'East', 'West']
+      console.log('🔥 [DASHBOARD] All system data loaded successfully:', {
+        customers: normalizedCustomers.length,
+        deals: normalizedDeals.length,
+        tasks: normalizedTasks.length,
+        products: normalizedProducts.length,
+        banks: normalizedBanks.length
+      });
+
+      setCustomers(normalizedCustomers);
+      setDeals(normalizedDeals);
+      setTasks(normalizedTasks);
+      setProducts(normalizedProducts);
+      setBankRecords(normalizedBanks);
+      
+      // Build dynamic chart data from real data
+      const dynamicChartData = {
+        departmentByAmount: departments.map(dept => {
+          const deptDeals = normalizedDeals.filter(deal => deal.department === dept);
+          return {
+            department: dept,
+            amount: deptDeals.reduce((sum, deal) => sum + (Number(deal.valueAmount) || 0), 0),
+            count: deptDeals.length
+          };
+        })
       };
+      setChartData(dynamicChartData);
 
-      // ✅ Update chart data
-      setChartData(dummyChartData);
+      // Build table data from real customers
+      const dynamicTableData = normalizedCustomers.slice(0, 10).map((customer, index) => ({
+        id: customer.id || index + 1,
+        accountNo: customer.accountNo || `ACC${index + 1}`,
+        customerName: customer.customerName || customer.fullName || 'Unknown',
+        department: customer.department || 'Unassigned',
+        stage: normalizedDeals.find(d => d.clientId === customer.id)?.stageCode || 'NEW_LEAD',
+        amount: normalizedDeals.find(d => d.clientId === customer.id)?.valueAmount || 0,
+        status: customer.status || 'Active'
+      }));
 
-      // ✅ Update table data
-      setTableData(dummyTableData);
+      setTableData(dynamicTableData);
       setPagination({
         page: 1,
         limit: 10,
-        total: 2,
-        totalPages: 1
+        total: normalizedCustomers.length,
+        totalPages: Math.ceil(normalizedCustomers.length / 10)
       });
-
-      // ✅ Update filter options
-      setFilterOptions(dummyFilterOptions);
-
+      
+      // Activities are now loaded via shared activity system - no need to call fetchGlobalActivities
+      
     } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
-      // Show error state
+      console.error('🔥 [DASHBOARD] Error fetching real data:', error);
+      setCustomers([]);
+      setDeals([]);
+      setTasks([]);
+      setProducts([]);
+      setBankRecords([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ FETCH FILTER OPTIONS (removed - using dummy data)
-  
+  // ✅ FETCH ALL DATA - Fixed condition
+  const fetchAllData = async () => {
+    setLoading(true);
+    try {
+      console.log('🔥 [DASHBOARD] Starting fetchAllData...');
+      
+      await Promise.all([
+        fetchDashboardData(),
+        fetchDepartments(),
+        fetchStagesForDepartment(selectedDepartment === 'ALL' ? departments[0] : selectedDepartment)
+      ]);
+      console.log('🔥 [DASHBOARD] All data fetched successfully');
+    } catch (error) {
+      console.error('🔥 [DASHBOARD] Failed to fetch data:', error);
+    } finally {
+      console.log('🔥 [DASHBOARD] Setting loading to false');
+      setLoading(false);
+    }
+  };
+
+  // ✅ FETCH DEPARTMENTS AND STAGES
+  const fetchDepartmentsAndStages = async () => {
+    try {
+      await fetchDepartments();
+      
+      // Fetch stages for all departments
+      for (const dept of departments) {
+        await fetchStagesForDepartment(dept);
+      }
+    } catch (error) {
+      console.error('🔥 [DASHBOARD] Error fetching departments/stages:', error);
+    }
+  };
+
+  // ✅ AUTO-REFRESH DASHBOARD DATA (not activities - activities use shared system)
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    const interval = setInterval(() => {
+      console.log('🔄 [ADMIN DASHBOARD] Auto-refreshing dashboard data...');
+      fetchDashboardData();
+    }, 30000); // 30 seconds
+    
+    return () => clearInterval(interval);
+  }, []); // Empty dependency - run once
+
+  // ✅ REAL-TIME UPDATES - Enhanced for all data types
+  useEffect(() => {
+    let broadcastChannel = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      broadcastChannel = new BroadcastChannel('crm-updates');
+      broadcastChannel.onmessage = (e) => {
+        console.log('🔄 [ADMIN DASHBOARD] Real-time update detected:', e.data?.type);
+        
+        // Refresh all data for any update
+        if (e.data?.type) {
+          console.log("🔄 [ADMIN DASHBOARD] Refreshing dashboard for:", e.data?.type);
+          fetchDashboardData(); // This will refresh activities too
+        }
+      };
+    }
+    
+    return () => {
+      if (broadcastChannel) {
+        broadcastChannel.close();
+      }
+    };
+  }, []); // Empty dependency - run once
+
+  // ✅ INITIAL DATA LOAD
+  useEffect(() => {
+    fetchAllData();
+    
+    // Safety timeout to prevent infinite loading
+    const timeout = setTimeout(() => {
+      console.log('🔥 [DASHBOARD] Safety timeout - forcing loading to false');
+      setLoading(false);
+    }, 10000); // 10 seconds timeout
+    
+    return () => clearTimeout(timeout);
+  }, [selectedDepartment]);
 
   // ✅ HANDLE FILTER CHANGE
   const handleFilterChange = (filterName, value) => {
@@ -382,12 +535,6 @@ export default function AdminManagerCRMDashboard({ userName, userRole }) {
       ...prev,
       [filterName]: value
     }));
-  };
-
-  // ✅ APPLY FILTERS
-  const applyFilters = () => {
-    setPagination(prev => ({ ...prev, page: 1 })); // Reset to first page
-    fetchDashboardData();
   };
 
   // ✅ RESET FILTERS
@@ -402,14 +549,46 @@ export default function AdminManagerCRMDashboard({ userName, userRole }) {
       customerName: '',
       allocation: ''
     });
-    setPagination(prev => ({ ...prev, page: 1 }));
-    setTimeout(fetchDashboardData, 100);
   };
+
+  // ✅ DYNAMIC DASHBOARD CARDS
+  const dashboardCards = useMemo(() => {
+    if (!dashboardStats) return [];
+
+    return [
+      {
+        title: "Total Deals",
+        value: dashboardStats.totalDeals.toLocaleString(),
+        icon: <BarChart3 className="h-6 w-6" />,
+        color: "blue"
+      },
+      {
+        title: "Pipeline Value",
+        value: `₹${(dashboardStats.totalValue / 100000).toFixed(1)}L`,
+        icon: <DollarSign className="h-6 w-6" />,
+        color: "green"
+      },
+      {
+        title: "Active Customers",
+        value: customers.length.toLocaleString(),
+        icon: <Users className="h-6 w-6" />,
+        color: "purple"
+      },
+      {
+        title: "Departments",
+        value: departments.length,
+        icon: <Building2 className="h-6 w-6" />,
+        color: "orange"
+      }
+    ];
+  }, [dashboardStats, customers.length, departments.length]);
 
   // ✅ HANDLE PAGE CHANGE
   const handlePageChange = (newPage) => {
-    setPagination(prev => ({ ...prev, page: newPage }));
-    fetchDashboardData();
+    setPagination(prev => ({
+      ...prev,
+      page: newPage
+    }));
   };
 
   return (
@@ -422,51 +601,52 @@ export default function AdminManagerCRMDashboard({ userName, userRole }) {
               CRM System - Yashraj
             </h1>
             <p className="text-gray-600 mt-1">
-              Professional Analytics Dashboard for {userRole}
+              Welcome back, {userName || 'Admin User'}
             </p>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={fetchDashboardData}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </button>
-            <button className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-              <Download className="h-4 w-4" />
-              Export
-            </button>
           </div>
         </div>
+      </div>
+
+      {/* ✅ DYNAMIC DASHBOARD CARDS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {dashboardCards.map((card, index) => (
+          <div key={index} className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">{card.title}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-2">{card.value}</p>
+              </div>
+              <div className={`p-3 rounded-lg bg-${card.color}-100`}>
+                <span className="text-2xl text-${card.color}-600">{card.icon}</span>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* ✅ FILTERS SECTION */}
       <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Filter className="h-5 w-5 text-gray-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Filters</h2>
+            <Filter className="h-5 w-5 text-gray-500" />
+            <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
           </div>
-          
-          {/* ✅ Department Selector for ADMIN/MANAGER */}
-          {(userRole === 'ADMIN' || userRole === 'MANAGER') && (
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Department:</label>
-              <select
-                value={selectedDepartment}
-                onChange={(e) => setSelectedDepartment(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">All Departments</option>
-                <option value="PPO">PPO</option>
-                <option value="PSD">PSD</option>
-                <option value="PPE">PPE</option>
-                <option value="HHD">HHD</option>
-              </select>
-            </div>
-          )}
+          <button
+            onClick={resetFilters}
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+          >
+            Reset
+          </button>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -491,107 +671,163 @@ export default function AdminManagerCRMDashboard({ userName, userRole }) {
             />
           </div>
 
-          {/* Department */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-            <select
-              value={filters.department}
-              onChange={(e) => handleFilterChange('department', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">All Departments</option>
-              {filterOptions.departments?.map(dept => (
-                <option key={dept} value={dept}>{dept}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* District */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">District</label>
-            <select
-              value={filters.district}
-              onChange={(e) => handleFilterChange('district', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">All Districts</option>
-              {filterOptions.districts?.map(district => (
-                <option key={district} value={district}>{district}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Bank Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
-            <select
-              value={filters.bankName}
-              onChange={(e) => handleFilterChange('bankName', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">All Banks</option>
-              {filterOptions.banks?.map(bank => (
-                <option key={bank} value={bank}>{bank}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Additional filters can be added here */}
-        </div>
-
-        <div className="flex items-center gap-3 mt-4">
-          <button
-            onClick={applyFilters}
-            disabled={loading}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
-          >
-            Apply Filters
-          </button>
-          <button
-            onClick={resetFilters}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-          >
-            Reset
-          </button>
+          {/* Department Filter */}
+          {(userRole === 'ADMIN' || userRole === 'MANAGER') && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+              <select
+                value={filters.department}
+                onChange={(e) => handleFilterChange('department', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">All Departments</option>
+                {departments.map(dept => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ✅ CHARTS GRID */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 mb-6">
-        
-        {/* ✅ FUNNEL CHART - NEW */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 lg:col-span-2 xl:col-span-3">
+      {/* ✅ ROW 1: FUNNEL CHART + DATA */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        {/* Left Side - Funnel Chart */}
+        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">
-              Funnel Chart - Stage Wise Count
+              Pipeline Funnel - Dynamic Counts
             </h3>
             
-            {/* ✅ Department Dropdown for Funnel Chart */}
+            {/* Department Dropdown for Funnel */}
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-gray-700">Department:</label>
               <div className="relative">
                 <select
-                  value={selectedDepartment || 'ACCOUNT'}
+                  value={selectedDepartment}
                   onChange={(e) => setSelectedDepartment(e.target.value)}
-                  className="appearance-none px-4 py-2 pr-8 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                  className="appearance-none px-3 py-1 pr-6 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
                 >
+                  <option value="ALL">All Departments</option>
                   {departments.map(dept => (
                     <option key={dept} value={dept}>{dept}</option>
                   ))}
                 </select>
-                <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
+                <ChevronDown className="absolute right-1 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
               </div>
             </div>
           </div>
           
+          {/* Dynamic Funnel Chart with Real Counts */}
           <FunnelChart 
-            data={chartData.funnelData[selectedDepartment || 'ACCOUNT'] || []} 
-            department={selectedDepartment || 'ACCOUNT'} 
-            stages={getStagesForDepartment(selectedDepartment || 'ACCOUNT')}
+            data={funnelCounts} 
+            department={selectedDepartment} 
+            stages={(() => {
+            let stages = selectedDepartment === 'ALL' 
+              ? getStagesForDepartment(departments[0]) || []
+              : getStagesForDepartment(selectedDepartment) || [];
+            
+            // Fallback stages for ACCOUNT department
+            if (!stages || stages.length === 0) {
+              if (selectedDepartment === 'ACCOUNT' || (selectedDepartment === 'ALL' && departments[0] === 'ACCOUNT')) {
+                console.log('🔥 [DASHBOARD] Using fallback stages for ACCOUNT department');
+                stages = [
+                  { stageCode: 'INVENTORY', stageName: 'Inventory', stageOrder: 1 },
+                  { stageCode: 'MAKE_BILL', stageName: 'Make Bill', stageOrder: 2 },
+                  { stageCode: 'BILL_SUBMIT', stageName: 'Bill Submit', stageOrder: 3 },
+                  { stageCode: 'BILL_FOLLOWUP', stageName: 'Bill Followup', stageOrder: 4 },
+                  { stageCode: 'BILL_PASS', stageName: 'Bill Pass', stageOrder: 5 },
+                  { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
+                  { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
+                ];
+              } else {
+                // Generic fallback stages for other departments
+                console.log('🔥 [DASHBOARD] Using generic fallback stages for department:', selectedDepartment);
+                stages = [
+                  { stageCode: 'LEAD', stageName: 'Lead', stageOrder: 1 },
+                  { stageCode: 'CONTACTED', stageName: 'Contacted', stageOrder: 2 },
+                  { stageCode: 'QUALIFIED', stageName: 'Qualified', stageOrder: 3 },
+                  { stageCode: 'PROPOSAL', stageName: 'Proposal', stageOrder: 4 },
+                  { stageCode: 'NEGOTIATION', stageName: 'Negotiation', stageOrder: 5 },
+                  { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
+                  { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
+                ];
+              }
+            }
+            
+            return stages;
+          })()}
           />
         </div>
-        
-        {/* Department by Amount - Horizontal Bar Chart */}
+
+        {/* Right Side - Records Data */}
+        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Recent Records - {selectedDepartment === 'ALL' ? 'All Departments' : selectedDepartment}
+          </h3>
+          
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {(() => {
+              // 🔥 FIXED: Link customers with their deals to get department and stage info
+              const customersWithDeals = customers.slice(0, 10).map(customer => {
+                const customerDeal = deals.find(deal => Number(deal?.clientId) === Number(customer.id));
+                return {
+                  ...customer,
+                  department: customerDeal?.department || customer.department || 'No Department',
+                  stage: customerDeal?.stageCode || customer.stage || 'No Stage',
+                  valueAmount: customerDeal?.valueAmount || customer.valueAmount || 0
+                };
+              });
+
+              return customersWithDeals.length > 0 ? (
+                customersWithDeals.map((customer, index) => (
+                  <div key={customer.id || index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {customer.customerName || customer.name || 'Unknown Customer'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {customer.department} • {customer.stage}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        customer.stage === 'CLOSE_WIN' ? 'bg-green-100 text-green-800' :
+                        customer.stage === 'CLOSE_LOST' ? 'bg-red-100 text-red-800' :
+                        'bg-blue-100 text-blue-800'
+                      }`}>
+                        {customer.stage}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        ₹{(customer.valueAmount || 0).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <div className="text-gray-500">
+                    <div className="text-lg font-medium mb-2">No records found</div>
+                    <div className="text-sm">No customer records available for the selected department</div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+          
+          {customers && customers.length > 10 && (
+            <div className="mt-4 text-center">
+              <button className="text-sm text-indigo-600 hover:text-indigo-800 font-medium">
+                View all {customers.length} records →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ✅ ROW 2: GRAPHS + DATA */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        {/* Left Side - Department by Amount Chart */}
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Department by Amount</h3>
           <ResponsiveContainer width="100%" height={300}>
@@ -605,185 +841,43 @@ export default function AdminManagerCRMDashboard({ userName, userRole }) {
           </ResponsiveContainer>
         </div>
 
-        {/* Yashrqj Enterprises Branch by Amount - Horizontal Bar Chart */}
+        {/* Right Side - Department Stats Data */}
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Yashraj Enterprises Branch</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData.yashrqjBranchByAmount}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="branch" />
-              <YAxis />
-              <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
-              <Bar dataKey="amount" fill="#82ca9d" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Department Statistics</h3>
+          <div className="space-y-4">
+            {(() => {
+              // 🔥 FIXED: Calculate department stats from deals data
+              const deptStats = {};
+              deals.forEach(deal => {
+                if (deal.department) {
+                  if (!deptStats[deal.department]) {
+                    deptStats[deal.department] = { count: 0, amount: 0 };
+                  }
+                  deptStats[deal.department].count++;
+                  deptStats[deal.department].amount += Number(deal.valueAmount) || 0;
+                }
+              });
 
-        {/* Contact Wise Amount - Bar Chart */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Wise Amount</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData.contactWiseAmount}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="contactName" />
-              <YAxis />
-              <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
-              <Bar dataKey="amount" fill="#8884d8" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+              // Ensure all departments are shown even with 0 values
+              departments.forEach(dept => {
+                if (!deptStats[dept]) {
+                  deptStats[dept] = { count: 0, amount: 0 };
+                }
+              });
 
-        {/* Amount by Closing Date and Department - Horizontal Straight Bar Chart */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 lg:col-span-2 xl:col-span-3">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Amount by Closing Date and Department</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData.amountByClosingDate}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="closingDate" />
-              <YAxis />
-              <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
-              <RechartsLegend />
-              <Bar dataKey="PPO" fill="#8884d8" />
-              <Bar dataKey="PSD" fill="#82ca9d" />
-              <Bar dataKey="PPE" fill="#ffc658" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Department Wise Stage - Bar Chart */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Department Wise Stage</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData.departmentWiseStage}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="department" />
-              <YAxis />
-              <RechartsTooltip />
-              <Bar dataKey="stageDuration" fill="#82ca9d" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Bank + Branch Wise Amount - Stacked Bar Chart */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 lg:col-span-2">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Bank + Branch Wise Amount</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData.bankBranchWiseAmount}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="bankName" />
-              <YAxis />
-              <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
-              <RechartsLegend />
-              <Bar dataKey="amount" fill="#8884d8" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* ✅ DATA TABLE */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="p-6 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Account Details</h3>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Account No</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Allocation Date</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Agreement No</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Customer Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Village / Taluka / District</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Bank / Branch</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Contact Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Department</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Product</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Stage</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Closing Date</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Amount</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Expenses</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Remarks</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Account Status</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-700">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {tableData.map((account, index) => (
-                <tr key={account.id || index} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{account.accountNo}</td>
-                  <td className="px-4 py-3">{account.allocationDate}</td>
-                  <td className="px-4 py-3">{account.agreementNo}</td>
-                  <td className="px-4 py-3 font-medium">{account.customerName}</td>
-                  <td className="px-4 py-3 text-xs">
-                    <div>{account.village}</div>
-                    <div className="text-gray-500">{account.taluka} / {account.district}</div>
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    <div>{account.bankName}</div>
-                    <div className="text-gray-500">{account.branchName}</div>
-                  </td>
-                  <td className="px-4 py-3">{account.contactName}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
-                      {account.department}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{account.product}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">
-                      {account.stage}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{account.closingDate}</td>
-                  <td className="px-4 py-3 font-medium">₹{account.amount?.toLocaleString()}</td>
-                  <td className="px-4 py-3">₹{account.expenses?.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-xs max-w-xs truncate">{account.remarks}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      account.accountStatus === 'Active' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {account.accountStatus}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button className="text-indigo-600 hover:text-indigo-800">
-                      <Eye className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ✅ PAGINATION */}
-        <div className="p-4 border-t border-gray-200 flex items-center justify-between">
-          <div className="text-sm text-gray-700">
-            Showing {((pagination.page - 1) * pagination.limit) + 1} to{' '}
-            {Math.min(pagination.page * pagination.limit, pagination.total)} of{' '}
-            {pagination.total} results
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handlePageChange(pagination.page - 1)}
-              disabled={pagination.page <= 1}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            <span className="px-3 py-1 text-sm">
-              Page {pagination.page} of {pagination.totalPages}
-            </span>
-            <button
-              onClick={() => handlePageChange(pagination.page + 1)}
-              disabled={pagination.page >= pagination.totalPages}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
+              return Object.entries(deptStats).map(([dept, stats]) => (
+                <div key={dept} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{dept}</p>
+                    <p className="text-xs text-gray-500">{stats.count} deals</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-gray-900">₹{stats.amount.toLocaleString()}</p>
+                    <p className="text-xs text-gray-500">Total Value</p>
+                  </div>
+                </div>
+              ));
+            })()}
           </div>
         </div>
       </div>

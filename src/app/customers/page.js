@@ -23,6 +23,7 @@ import { getLoggedInUser } from "@/utils/auth";
 import { getAuthUser } from "@/utils/authUser";
 import { getCurrentUserName, getCurrentUserRole } from "@/utils/userUtils";
 import { getTabSafeItem } from "@/utils/tabSafeStorage";
+import { broadcastActivity, createActivity } from "@/utils/activityBus";
 
 import { useCustomerAddressSync } from "@/context/CustomerAddressContext";
 
@@ -1686,6 +1687,15 @@ export default function CustomersPage() {
 
         savedCustomer = await clientApi.update(selectedCustomer.id, customerPayload);
 
+        // 📢 Broadcast customer update activity
+        broadcastActivity(createActivity(
+          'CUSTOMER',
+          `updated customer (${savedCustomer.name || savedCustomer.customerName || 'Unknown'})`,
+          getCurrentUserName(),
+          savedCustomer.department || savedCustomer.ownerName || 'Unassigned',
+          { id: `customer_${savedCustomer.id}` }
+        ));
+
         // Update addresses using POST for existing customer (backend uses upsert)
 
         await fetch(`http://localhost:8080/api/clients/${savedCustomer.id}/addresses`, {
@@ -1703,6 +1713,15 @@ export default function CustomersPage() {
         // Create customer first
 
         savedCustomer = await clientApi.create(customerPayload);
+
+        // 📢 Broadcast customer creation activity
+        broadcastActivity(createActivity(
+          'CUSTOMER',
+          `created customer (${savedCustomer.name || savedCustomer.customerName || 'Unknown'})`,
+          getCurrentUserName(),
+          savedCustomer.department || savedCustomer.ownerName || 'Unassigned',
+          { id: `customer_${savedCustomer.id}` }
+        ));
 
         // Then create addresses using POST for new customer
 
@@ -1771,19 +1790,58 @@ export default function CustomersPage() {
         // 🔥 CRITICAL FIX: Normalize clientId mapping for deal lookup
         const existingDeal = deals.find((deal) => Number(deal?.clientId ?? deal?.client_id) === Number(selectedCustomer.id));
 
+        let savedDeal;
         if (existingDeal) {
 
-          await backendApi.put(`/deals/${existingDeal.id}`, dealPayload);
+          savedDeal = await backendApi.put(`/deals/${existingDeal.id}`, dealPayload);
+
+          // 📢 Broadcast deal update activity
+          broadcastActivity(createActivity(
+            'DEAL',
+            `updated deal (${savedDeal.name || 'Unknown'} - ${savedDeal.clientName || 'Unknown'})`,
+            getCurrentUserName(),
+            savedDeal.department || savedDeal.ownerName || 'Unassigned',
+            { id: `deal_${savedDeal.id}` }
+          ));
 
         } else {
 
-          await backendApi.post("/deals", dealPayload);
+          savedDeal = await backendApi.post("/deals", dealPayload);
 
+          // 📢 Broadcast deal creation activity
+          broadcastActivity(createActivity(
+            'DEAL',
+            `created deal (${savedDeal.name || 'Unknown'} - ${savedDeal.clientName || 'Unknown'})`,
+            getCurrentUserName(),
+            savedDeal.department || savedDeal.ownerName || 'Unassigned',
+            { id: `deal_${savedDeal.id}` }
+          ));
+
+        }
+
+        // 📢 Broadcast deal stage change if stage changed
+        if (form.stage && existingDeal?.stageCode !== form.stage) {
+          broadcastActivity(createActivity(
+            'DEAL',
+            `Deal stage changed to ${form.stage}`,
+            getCurrentUserName(),
+            dealPayload.department || dealPayload.ownerName || 'Unassigned',
+            { id: `deal_stage_${savedDeal.id || existingDeal.id}` }
+          ));
         }
 
       } else {
 
-        await backendApi.post("/deals", dealPayload);
+        const newDeal = await backendApi.post("/deals", dealPayload);
+
+        // 📢 Broadcast deal creation activity for new customer
+        broadcastActivity(createActivity(
+          'DEAL',
+          `created deal (${newDeal.name || 'Unknown'} - ${newDeal.clientName || 'Unknown'})`,
+          getCurrentUserName(),
+          newDeal.department || newDeal.ownerName || 'Unassigned',
+          { id: `deal_${newDeal.id}` }
+        ));
 
       }
 

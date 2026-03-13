@@ -20,9 +20,8 @@ import DepartmentPieChart from "@/components/charts/DepartmentPieChart";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useStages } from '@/context/StageContext';
 import { backendApi } from "@/services/api";
-import { getCurrentUserName, getCurrentUserRole } from "@/utils/userUtils";
-import { broadcastActivity, createActivity } from "@/utils/activityBus";
 import { departmentApiService } from "@/services/departmentApi.service";
+import { getCurrentUserRole } from "@/utils/userUtils";
 
 // ✅ Funnel Chart Component for TL - Fixed Shape with Dynamic Counts
 const FunnelChart = ({ data, department, stages }) => {
@@ -150,12 +149,11 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
   const [employees, setEmployees] = useState([]);
   const [departmentStats, setDepartmentStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null); // ✅ ADDED: Missing error state
   const [selectedDepartment, setSelectedDepartment] = useState('');
   
   const currentUser = getAuthUser();
-  const authUserRole = getCurrentUserRole(); // ✅ FIXED: Use different name to avoid conflict
-  const authUserName = currentUser?.fullName || currentUser?.name || 'Team Lead'; // ✅ FIXED: Use different name
+  const userRole = getCurrentUserRole();
+  const userName = currentUser?.fullName || currentUser?.name || 'Team Lead';
   
   const { getStagesForDepartment, fetchStagesForDepartment } = useStages();
   
@@ -168,7 +166,7 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
     // Get stages for selected department
     let stages = getStagesForDepartment(currentUser?.department);
     
-    // Comprehensive fallback stages for all departments
+    // Fallback stages for ACCOUNT department if not loaded
     if (!stages || stages.length === 0) {
       if (currentUser?.department === 'ACCOUNT') {
         console.log('🔥 [TL DASHBOARD] Using fallback stages for ACCOUNT department');
@@ -181,59 +179,14 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
           { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
           { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
         ];
-      } else if (currentUser?.department === 'PPE') {
-        console.log('🔥 [TL DASHBOARD] Using fallback stages for PPE department');
-        stages = [
-          { stageCode: 'NEW_LEAD', stageName: 'New Lead', stageOrder: 1 },
-          { stageCode: 'REVIEW', stageName: 'Review', stageOrder: 2 },
-          { stageCode: 'LOAN_APPLICATION', stageName: 'Loan Application', stageOrder: 3 },
-          { stageCode: 'DOCUMENTATION', stageName: 'Documentation', stageOrder: 4 },
-          { stageCode: 'APPROVAL', stageName: 'Approval', stageOrder: 5 },
-          { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
-          { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
-        ];
-      } else if (currentUser?.department === 'HLC') {
-        console.log('🔥 [TL DASHBOARD] Using fallback stages for HLC department');
-        stages = [
-          { stageCode: 'NEW_LEAD', stageName: 'New Lead', stageOrder: 1 },
-          { stageCode: 'REVIEW', stageName: 'Review', stageOrder: 2 },
-          { stageCode: 'LOAN_APPLICATION', stageName: 'Loan Application', stageOrder: 3 },
-          { stageCode: 'DOCUMENTATION', stageName: 'Documentation', stageOrder: 4 },
-          { stageCode: 'APPROVAL', stageName: 'Approval', stageOrder: 5 },
-          { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
-          { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
-        ];
       } else {
-        console.log('🔥 [TL DASHBOARD] Using default fallback stages for department:', currentUser?.department);
-        stages = [
-          { stageCode: 'NEW_LEAD', stageName: 'New Lead', stageOrder: 1 },
-          { stageCode: 'REVIEW', stageName: 'Review', stageOrder: 2 },
-          { stageCode: 'LOAN_APPLICATION', stageName: 'Loan Application', stageOrder: 3 },
-          { stageCode: 'DOCUMENTATION', stageName: 'Documentation', stageOrder: 4 },
-          { stageCode: 'APPROVAL', stageName: 'Approval', stageOrder: 5 },
-          { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
-          { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
-        ];
+        console.log('🔥 [TL DASHBOARD] No stages found for department:', currentUser?.department);
+        return [];
       }
     }
 
-    console.log('🔥 [TL DASHBOARD] Stages being used for funnel:', stages.map(s => s.stageCode));
-
     // Filter deals by department
-    const filteredDeals = deals.filter(d => {
-      // TL should see deals assigned to them OR deals in their department
-      const assignedToTL = d.ownerName === currentUser?.name || 
-                          d.ownerName === currentUser?.fullName ||
-                          d.assignedTo === currentUser?.name ||
-                          d.assignedTo === currentUser?.fullName;
-      
-      const deptMatch = d.department === currentUser?.department || 
-                       d.ownerName === currentUser?.department || 
-                       d.departmentName === currentUser?.department || 
-                       d.tlDepartmentName === currentUser?.department;
-      
-      return assignedToTL || deptMatch;
-    });
+    const filteredDeals = deals.filter(d => d.department === currentUser?.department);
 
     console.log('🔥 [TL DASHBOARD] Filtered deals:', filteredDeals.length, 'for department:', currentUser?.department);
 
@@ -327,45 +280,22 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
     }
   };
 
-  // 🔥 NEW: Fetch tasks with proper role-based access - CRM/ERP ARCHITECTURE
+  // 🔥 NEW: Fetch tasks with role-based access - FIXED FOR ADMIN USERS
   const fetchTasks = async () => {
     try {
-      console.log('🔥 [TL DASHBOARD] Fetching tasks for role:', authUserRole, 'department:', currentUser?.department);
+      console.log('🔥 [TL DASHBOARD] Fetching tasks for role:', userRole, 'department:', currentUser?.department);
       
-      // ✅ CRM/ERP ROLE LOGIC:
-      // ADMIN: Access ALL departments (department = null means no filtering)
-      // MANAGER: Multi-department access
-      // TL/EMPLOYEE: Only their department
-      
-      if (authUserRole === 'ADMIN') {
-        console.log('🔥 [TL DASHBOARD] ADMIN role - fetching ALL tasks across ALL departments');
-        // Admin gets ALL tasks without department filtering
-        const tasksData = await backendApi.get('/tasks');
-        const tasksArray = Array.isArray(tasksData) ? tasksData : (tasksData?.content || []);
-        console.log('🔥 [TL DASHBOARD] ADMIN - All tasks fetched:', tasksArray.length);
-        setTasks(tasksArray || []);
-        
-      } else if (authUserRole === 'MANAGER') {
-        console.log('🔥 [TL DASHBOARD] MANAGER role - fetching multi-department tasks');
-        // Manager gets tasks from their assigned departments or all if no department restriction
-        const tasksData = await departmentApiService.getTasks();
-        console.log('🔥 [TL DASHBOARD] MANAGER - Tasks fetched:', tasksData.length);
-        setTasks(tasksData || []);
-        
-      } else {
-        // TL/EMPLOYEE: Only their department
-        console.log('🔥 [TL DASHBOARD] TL/EMPLOYEE role - fetching department-specific tasks');
-        const tasksData = await departmentApiService.getTasks();
-        console.log('🔥 [TL DASHBOARD] TL/EMPLOYEE - Tasks fetched:', tasksData.length);
-        setTasks(tasksData || []);
-      }
+      // First try department API service (which handles role-based filtering)
+      const tasksData = await departmentApiService.getTasks();
+      console.log('🔥 [TL DASHBOARD] Tasks fetched via department API:', tasksData.length);
+      setTasks(tasksData || []);
       
     } catch (error) {
-      console.error('🔥 [TL DASHBOARD] Failed to fetch tasks:', error);
+      console.error('🔥 [TL DASHBOARD] Failed to fetch tasks via department API:', error);
       
-      // 🔥 ENHANCED FALLBACK: Try direct API call with proper role headers
+      // 🔥 FIXED: Try direct API call with proper headers for admin users
       try {
-        console.log('🔥 [TL DASHBOARD] Trying direct API call fallback...');
+        console.log('🔥 [TL DASHBOARD] Trying direct API call for admin access...');
         
         // Get auth token and user info
         const token = localStorage.getItem('token');
@@ -381,23 +311,21 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
           headers['Authorization'] = `Bearer ${token}`;
         }
         
-        // ✅ PROPER ROLE-BASED HEADERS
+        // Add user context headers for role-based access
         if (parsedUser?.id) {
           headers['X-User-Id'] = parsedUser.id.toString();
         }
-        if (parsedUser?.role || authUserRole) {
-          headers['X-User-Role'] = parsedUser?.role || authUserRole;
+        if (parsedUser?.role || userRole) {
+          headers['X-User-Role'] = parsedUser?.role || userRole;
         }
-        // ✅ KEY FIX: Only add department header for non-ADMIN roles
-        if (authUserRole !== 'ADMIN' && (parsedUser?.department || currentUser?.department)) {
+        if (parsedUser?.department || currentUser?.department) {
           headers['X-User-Department'] = parsedUser?.department || currentUser?.department;
         }
         
-        console.log('🔥 [TL DASHBOARD] Direct API call with role-based headers:', {
+        console.log('🔥 [TL DASHBOARD] Making direct API call with headers:', {
           role: headers['X-User-Role'],
           department: headers['X-User-Department'],
-          userId: headers['X-User-Id'],
-          isAdmin: authUserRole === 'ADMIN'
+          userId: headers['X-User-Id']
         });
         
         const response = await fetch('/api/tasks', {
@@ -420,7 +348,7 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
         
         // Final fallback: Try backendApi without restrictions
         try {
-          console.log('🔥 [TL DASHBOARD] Final backendApi fallback...');
+          console.log('🔥 [TL DASHBOARD] Trying backendApi as final fallback...');
           const response = await backendApi.get('/tasks');
           const tasksArray = Array.isArray(response) ? response : (response?.content || []);
           console.log('🔥 [TL DASHBOARD] BackendApi fallback successful:', tasksArray.length);
@@ -433,13 +361,11 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
     }
   };
 
-  // 🔥 NEW: Fetch products data - SAME APPROACH AS PRODUCTS PAGE
+  // 🔥 NEW: Fetch products data
   const fetchProducts = async () => {
     try {
       console.log('🔥 [TL DASHBOARD] Fetching products...');
-      // ✅ Use same approach as products page - direct backend API
-      const res = await backendApi.get("/products");
-      const productsData = Array.isArray(res) ? res : (res?.content || []);
+      const productsData = await departmentApiService.getProducts();
       console.log('🔥 [TL DASHBOARD] Products fetched:', productsData.length);
       setProducts(productsData || []);
     } catch (error) {
@@ -448,13 +374,11 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
     }
   };
 
-  // 🔥 NEW: Fetch bank records data - SAME APPROACH AS BANK PAGE
+  // 🔥 NEW: Fetch bank records data
   const fetchBankRecords = async () => {
     try {
       console.log('🔥 [TL DASHBOARD] Fetching bank records...');
-      // ✅ Use same approach as bank page - direct backend API
-      const res = await backendApi.get("/banks");
-      const bankData = Array.isArray(res) ? res : (res?.content || []);
+      const bankData = await departmentApiService.getBankRecords();
       console.log('🔥 [TL DASHBOARD] Bank records fetched:', bankData.length);
       setBankRecords(bankData || []);
     } catch (error) {
@@ -477,81 +401,49 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
     }
   };
 
-  // Activities section completely removed
+  // ✅ Fetch all data from all sources
+  const fetchAllData = async () => {
+    if (!currentUser?.department) return;
+    
+    console.log('🔥 [TL DASHBOARD] Starting comprehensive data fetch...');
+    setLoading(true);
+    
+    // Safety timeout
+    const timeout = setTimeout(() => {
+      console.log('🔥 [TL DASHBOARD] Safety timeout - forcing loading to false');
+      setLoading(false);
+    }, 15000);
+    
+    try {
+      await Promise.all([
+        fetchDepartmentStats(),
+        fetchCustomers(),
+        fetchDeals(),
+        fetchTasks(),
+        fetchProducts(),
+        fetchBankRecords(),
+        fetchEmployees(),
+        fetchStagesForDepartment(currentUser.department)
+      ]);
+      console.log('🔥 [TL DASHBOARD] All data sources fetched successfully');
+    } catch (error) {
+      console.error('🔥 [TL DASHBOARD] Failed to fetch comprehensive data:', error);
+    } finally {
+      clearTimeout(timeout);
+      console.log('🔥 [TL DASHBOARD] Setting loading to false');
+      setLoading(false);
+    }
+  };
+
+  // 🔥 NEW: Calculate comprehensive statistics
   const comprehensiveStats = useMemo(() => {
     const dept = currentUser?.department || 'ALL';
     
-    // 🔥 DEBUG: Log key info for debugging
-    console.log('🔍 [DEBUG] Current user:', currentUser, 'Department:', dept);
-    
-    // 🔥 DEBUG: Check amount fields in customers and deals
-    if (customers.length > 0) {
-      console.log('🔍 [DEBUG] Customer amount fields:', Object.keys(customers[0]));
-      console.log('🔍 [DEBUG] Sample customer ALL fields:', customers[0]);
-    }
-    if (deals.length > 0) {
-      console.log('🔍 [DEBUG] Deal amount fields:', Object.keys(deals[0]));
-      console.log('🔍 [DEBUG] Sample deal ALL fields:', deals[0]);
-    }
-    
-    // 🔥 FIX: Handle department filtering correctly
-    // For ADMIN users with null department, show all data
-    // For TL users, filter by their department
-    // 🔥 CRITICAL FIX: Customers and Bank records use "ownerName" field, not "department"
-    // 🔥 ENHANCED: Include customers who have tasks in current department
-    const deptCustomers = (currentUser?.role === 'ADMIN' || !dept || dept === 'ALL') 
-      ? customers 
-      : customers.filter(c => {
-          // Direct department match
-          const directMatch = c.ownerName === dept || c.department === dept || c.departmentName === dept || c.tlDepartmentName === dept;
-          
-          // Indirect match: customer has tasks in this department
-          const customerTasks = tasks.filter(t => t.clientId === c.id || t.customerId === c.id || t.customerName === c.name);
-          const hasTaskInDept = customerTasks.some(t => t.department === dept);
-          
-          // Indirect match: customer has deals in this department  
-          const customerDeals = deals.filter(d => d.clientId === c.id || d.customerId === c.id || d.customerName === c.name);
-          const hasDealInDept = customerDeals.some(d => d.department === dept);
-          
-          return directMatch || hasTaskInDept || hasDealInDept;
-        });
-      
-    const deptDeals = (currentUser?.role === 'ADMIN' || !dept || dept === 'ALL') 
-      ? deals 
-      : deals.filter(d => d.department === dept || d.departmentName === dept || d.tlDepartmentName === dept || d.ownerName === dept);
-      
-    const deptTasks = (currentUser?.role === 'ADMIN' || !dept || dept === 'ALL') 
-      ? tasks 
-      : tasks.filter(t => t.department === dept || t.departmentName === dept || t.tlDepartmentName === dept);
-      
-    const deptEmployees = (currentUser?.role === 'ADMIN' || !dept || dept === 'ALL') 
-      ? employees 
-      : employees.filter(e => e.departmentName === dept || e.department === dept);
-    
-    // 🔥 ENHANCED: Bank filtering with association logic
-    const deptBankRecords = (currentUser?.role === 'ADMIN' || !dept || dept === 'ALL') 
-      ? bankRecords 
-      : bankRecords.filter(b => {
-          // Direct department match via ownerName
-          const directMatch = b.ownerName === dept || b.department === dept || b.departmentName === dept || b.tlDepartmentName === dept;
-          
-          // Indirect match: bank associated with customers in this department
-          const associatedCustomers = customers.filter(c => c.bankName === b.name || c.bankId === b.id);
-          const hasCustomerInDept = associatedCustomers.some(c => deptCustomers.includes(c));
-          
-          // Indirect match: bank associated with tasks in this department
-          const associatedTasks = tasks.filter(t => t.bankName === b.name || t.bankId === b.id);
-          const hasTaskInDept = associatedTasks.some(t => deptTasks.includes(t));
-          
-          return directMatch || hasCustomerInDept || hasTaskInDept;
-        });
-    
-    // 🔥 DEBUG: Log filtered results
-    console.log('🔍 [DEBUG] Filtered results:', {
-      customers: `${deptCustomers.length} of ${customers.length}`,
-      bankRecords: `${deptBankRecords.length} of ${bankRecords.length}`,
-      tasks: `${deptTasks.length} of ${tasks.length}`
-    });
+    // Filter data by department
+    const deptCustomers = customers.filter(c => c.department === dept);
+    const deptDeals = deals.filter(d => d.department === dept);
+    const deptTasks = tasks.filter(t => t.department === dept);
+    const deptEmployees = employees.filter(e => e.departmentName === dept);
     
     // Calculate totals
     const totalCustomers = customers.length;
@@ -564,86 +456,17 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
     const deptCustomerCount = deptCustomers.length;
     const deptProductCount = totalProducts; // Products are usually global
     const deptTaskCount = deptTasks.length;
-    const deptBankRecordCount = totalBankRecords; // Show total banks count for both metrics
+    const deptBankRecordCount = bankRecords.filter(b => b.department === dept).length;
     
     // Task status breakdown
     const completedTasks = deptTasks.filter(t => t.status === 'COMPLETED' || t.status === 'DONE').length;
-    const pendingTasks = deptTasks.filter(t => t.status === 'PENDING' || t.status === 'TODO' || t.status === 'INQUIRY').length;
-    const inProgressTasks = deptTasks.filter(t => t.status === 'IN_PROGRESS' || t.status === 'IN_PROGRESS').length;
+    const pendingTasks = deptTasks.filter(t => t.status === 'PENDING' || t.status === 'TODO').length;
+    const inProgressTasks = deptTasks.filter(t => t.status === 'IN_PROGRESS').length;
     
-    // Bank summary - calculate total amounts from customers/deals
-    const dealsAmount = deals.reduce((sum, deal) => {
-      const amount = Number(deal.valueAmount) || Number(deal.value_amount) || Number(deal.amount) || Number(deal.value) || 0;
-      console.log(`🔍 [DEBUG] Deal "${deal.name}" amount: ${amount} (from valueAmount: ${deal.valueAmount})`);
-      return sum + amount;
-    }, 0);
+    // Bank summary
+    const totalBankAmount = bankRecords.reduce((sum, bank) => sum + (Number(bank.amount) || Number(bank.balance) || 0), 0);
     
-    const customersAmount = customers.reduce((sum, customer) => {
-      // Check all possible amount fields in customer
-      const directFields = {
-        totalAmount: Number(customer.totalAmount) || 0,
-        amount: Number(customer.amount) || 0,
-        value: Number(customer.value) || 0,
-        dealValue: Number(customer.dealValue) || 0,
-        valueAmount: Number(customer.valueAmount) || 0
-      };
-      
-      // Check custom fields for amount
-      let customAmount = 0;
-      if (customer.customFields && typeof customer.customFields === 'object') {
-        Object.values(customer.customFields).forEach(fieldValue => {
-          const numValue = Number(fieldValue);
-          if (!isNaN(numValue) && numValue > 0) {
-            customAmount = Math.max(customAmount, numValue);
-          }
-        });
-      }
-      
-      // Check all numeric fields in customer object
-      let maxAmount = 0;
-      let maxField = '';
-      Object.keys(customer).forEach(key => {
-        // Exclude ID fields, phone numbers, and other non-amount fields
-        if (key !== 'id' && key !== 'name' && key !== 'email' && key !== 'phone' && 
-            key !== 'contactPhone' && key !== 'contactNumber' && key !== 'pincode' && 
-            !key.toLowerCase().includes('id') && !key.toLowerCase().includes('phone')) {
-          const value = Number(customer[key]);
-          // Only consider reasonable amount values (greater than 100 to avoid small IDs)
-          if (!isNaN(value) && value > maxAmount && value > 100 && value < 999999) {
-            maxAmount = value;
-            maxField = key;
-          }
-        }
-      });
-      
-      const finalAmount = Math.max(
-        ...Object.values(directFields),
-        customAmount,
-        maxAmount
-      );
-      
-      console.log(`🔍 [DEBUG] Customer "${customer.name}" amount breakdown:`, {
-        directFields,
-        customAmount,
-        maxAmount,
-        maxField,
-        finalAmount
-      });
-      
-      return sum + finalAmount;
-    }, 0);
-    
-    const totalBankAmount = dealsAmount + customersAmount;
-    
-    console.log('🔍 [DEBUG] Final amount calculation:', {
-      dealsAmount,
-      customersAmount,
-      totalBankAmount,
-      dealsCount: deals.length,
-      customersCount: customers.length
-    });
-    
-    // Deal values - use filtered deals for correct department calculation
+    // Deal values
     const totalDealValue = deptDeals.reduce((sum, deal) => sum + (Number(deal.valueAmount) || 0), 0);
     
     console.log('🔥 [TL DASHBOARD] Comprehensive stats calculated:', {
@@ -655,9 +478,7 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
       deptTaskCount,
       completedTasks,
       pendingTasks,
-      totalBankAmount,
-      totalBankRecords,
-      deptBankRecordCount // Now shows total banks
+      totalBankAmount
     });
     
     return {
@@ -685,8 +506,8 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
     
     // Customer distribution
     const customerDistribution = [
-      { name: `${dept} Department`, value: comprehensiveStats.deptCustomerCount, percentage: comprehensiveStats.totalCustomers > 0 ? (comprehensiveStats.deptCustomerCount / comprehensiveStats.totalCustomers * 100).toFixed(1) : 0 },
-      { name: 'Other Departments', value: comprehensiveStats.totalCustomers - comprehensiveStats.deptCustomerCount, percentage: comprehensiveStats.totalCustomers > 0 ? ((comprehensiveStats.totalCustomers - comprehensiveStats.deptCustomerCount) / comprehensiveStats.totalCustomers * 100).toFixed(1) : 0 }
+      { name: `${dept} Department`, value: comprehensiveStats.deptCustomerCount, percentage: totalCustomers > 0 ? (comprehensiveStats.deptCustomerCount / comprehensiveStats.totalCustomers * 100).toFixed(1) : 0 },
+      { name: 'Other Departments', value: comprehensiveStats.totalCustomers - comprehensiveStats.deptCustomerCount, percentage: totalCustomers > 0 ? ((comprehensiveStats.totalCustomers - comprehensiveStats.deptCustomerCount) / comprehensiveStats.totalCustomers * 100).toFixed(1) : 0 }
     ];
     
     // Task distribution
@@ -699,37 +520,27 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
       customerDistribution,
       taskDistribution
     };
-  }, [comprehensiveStats]);
+  }, [comprehensiveStats, totalCustomers]);
 
   // ✅ Fetch department-specific stats for TL
   const fetchDepartmentStats = async () => {
-    // 🔥 FIX: Allow ADMIN users to get stats even without department
-    if (!currentUser) {
+    if (!currentUser?.department) {
       setDepartmentStats({
         error: true,
-        message: 'No user information available'
+        message: 'No department assigned'
       });
       return;
     }
     
     try {
-      console.log('🔥 [TL DASHBOARD] Fetching department stats for:', currentUser.department || 'ALL (ADMIN)');
+      console.log('🔥 [TL DASHBOARD] Fetching department stats for:', currentUser.department);
       
-      // 🔥 FIX: Handle ADMIN users with null department
-      const dept = currentUser?.department || 'ALL';
-      const isAdmin = currentUser?.role === 'ADMIN';
-      
-      // 🔥 DEBUG: Log data structure for debugging
-      console.log('🔍 [DEPT STATS DEBUG] User:', currentUser, 'Dept:', dept, 'IsAdmin:', isAdmin);
-      console.log('🔍 [DEPT STATS DEBUG] Customers sample:', customers.slice(0, 1));
-      console.log('🔍 [DEPT STATS DEBUG] Bank records sample:', bankRecords.slice(0, 1));
-      
-      // ✅ Use comprehensive real data with enhanced filtering
+      // ✅ Use comprehensive real data
       const realStats = {
         customers: {
-          department: isAdmin ? customers.length : customers.filter(c => c.ownerName === dept || c.department === dept || c.departmentName === dept || c.tlDepartmentName === dept).length,
+          department: customers.filter(c => c.department === currentUser.department).length,
           total: customers.length,
-          percentage: isAdmin ? 100 : (customers.length > 0 ? (customers.filter(c => c.ownerName === dept || c.department === dept || c.departmentName === dept || c.tlDepartmentName === dept).length / customers.length * 100) : 0)
+          percentage: customers.length > 0 ? (customers.filter(c => c.department === currentUser.department).length / customers.length * 100) : 0
         },
         products: {
           department: products.length, // Products are usually global
@@ -737,31 +548,17 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
           percentage: 100
         },
         tasks: {
-          department: isAdmin ? tasks.length : tasks.filter(t => t.department === dept || t.departmentName === dept || t.tlDepartmentName === dept).length,
+          department: tasks.filter(t => t.department === currentUser.department).length,
           total: tasks.length,
-          percentage: isAdmin ? 100 : (tasks.length > 0 ? (tasks.filter(t => t.department === dept || t.departmentName === dept || t.tlDepartmentName === dept).length / tasks.length * 100) : 0),
-          completed: isAdmin ? tasks.filter(t => t.status === 'COMPLETED' || t.status === 'DONE').length : tasks.filter(t => (t.department === dept || t.departmentName === dept || t.tlDepartmentName === dept) && (t.status === 'COMPLETED' || t.status === 'DONE')).length,
-          pending: isAdmin ? tasks.filter(t => t.status === 'PENDING' || t.status === 'TODO' || t.status === 'INQUIRY').length : tasks.filter(t => (t.department === dept || t.departmentName === dept || t.tlDepartmentName === dept) && (t.status === 'PENDING' || t.status === 'TODO' || t.status === 'INQUIRY')).length
+          percentage: tasks.length > 0 ? (tasks.filter(t => t.department === currentUser.department).length / tasks.length * 100) : 0,
+          completed: tasks.filter(t => t.department === currentUser.department && (t.status === 'COMPLETED' || t.status === 'DONE')).length,
+          pending: tasks.filter(t => t.department === currentUser.department && (t.status === 'PENDING' || t.status === 'TODO')).length
         },
         bank: {
-          department: isAdmin ? bankRecords.length : bankRecords.filter(b => {
-            // Direct department match via ownerName
-            const directMatch = b.ownerName === dept || b.department === dept || b.departmentName === dept || b.tlDepartmentName === dept;
-            
-            // Indirect match: bank associated with customers in this department
-            const associatedCustomers = customers.filter(c => c.bankName === b.name || c.bankId === b.id);
-            const hasCustomerInDept = associatedCustomers.some(c => c.ownerName === dept || c.department === dept || c.departmentName === dept || c.tlDepartmentName === dept);
-            
-            // Indirect match: bank associated with tasks in this department
-            const associatedTasks = tasks.filter(t => t.bankName === b.name || t.bankId === b.id);
-            const hasTaskInDept = associatedTasks.some(t => t.department === dept);
-            
-            return directMatch || hasCustomerInDept || hasTaskInDept;
-          }).length,
-          total: bankRecords.length, // Show total banks count
-          percentage: bankRecords.length > 0 ? Math.round((bankRecords.length / bankRecords.length) * 100) : 100, // Always 100% since total = total
-          totalAmount: deals.reduce((sum, deal) => sum + (Number(deal.valueAmount) || 0), 0) +
-                      customers.reduce((sum, customer) => sum + (Number(customer.totalAmount) || Number(customer.amount) || 0), 0)
+          department: bankRecords.filter(b => b.department === currentUser.department).length,
+          total: bankRecords.length,
+          percentage: bankRecords.length > 0 ? (bankRecords.filter(b => b.department === currentUser.department).length / bankRecords.length * 100) : 0,
+          totalAmount: bankRecords.reduce((sum, bank) => sum + (Number(bank.amount) || Number(bank.balance) || 0), 0)
         },
         recentActivity: [], // Will be populated with real activities
         funnelData: funnelCounts // Use real funnel counts
@@ -776,30 +573,6 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
         error: true,
         message: 'Failed to load department statistics'
       });
-    }
-  };
-
-  // ✅ MAIN DATA FETCHING FUNCTION
-  const fetchAllData = async () => {
-    try {
-      console.log('🔥 [TL DASHBOARD] Starting fetchAllData...');
-      setLoading(true);
-      
-      // Fetch all data sources in parallel
-      await Promise.all([
-        fetchCustomers(),
-        fetchDeals(),
-        fetchTasks(),
-        fetchProducts(),
-        fetchBankRecords(),
-        fetchEmployees()
-      ]);
-      
-      console.log('🔥 [TL DASHBOARD] All data sources fetched successfully');
-    } catch (error) {
-      console.error('🔥 [TL DASHBOARD] Error fetching data:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -831,8 +604,7 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
     );
   }
 
-  // 🔥 FIX: Allow ADMIN users to see dashboard even without department
-  if (error || (!currentUser?.department && currentUser?.role !== 'ADMIN')) {
+  if (error || !currentUser?.department) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -868,7 +640,7 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
               <div className="text-right">
                 <p className="text-sm text-gray-500">Department Head</p>
                 <p className="text-lg font-semibold text-gray-900">
-                  {authUserName || 'Team Lead'}
+                  {userName || 'Team Lead'}
                 </p>
               </div>
             </div>
@@ -1029,7 +801,7 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
                 stages={(() => {
                   let stages = getStagesForDepartment(currentUser?.department) || [];
                   
-                  // Comprehensive fallback stages for all departments
+                  // Fallback stages for ACCOUNT department
                   if (!stages || stages.length === 0) {
                     if (currentUser?.department === 'ACCOUNT') {
                       stages = [
@@ -1041,41 +813,9 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
                         { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
                         { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
                       ];
-                    } else if (currentUser?.department === 'PPE') {
-                      stages = [
-                        { stageCode: 'NEW_LEAD', stageName: 'New Lead', stageOrder: 1 },
-                        { stageCode: 'REVIEW', stageName: 'Review', stageOrder: 2 },
-                        { stageCode: 'LOAN_APPLICATION', stageName: 'Loan Application', stageOrder: 3 },
-                        { stageCode: 'DOCUMENTATION', stageName: 'Documentation', stageOrder: 4 },
-                        { stageCode: 'APPROVAL', stageName: 'Approval', stageOrder: 5 },
-                        { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
-                        { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
-                      ];
-                    } else if (currentUser?.department === 'HLC') {
-                      stages = [
-                        { stageCode: 'NEW_LEAD', stageName: 'New Lead', stageOrder: 1 },
-                        { stageCode: 'REVIEW', stageName: 'Review', stageOrder: 2 },
-                        { stageCode: 'LOAN_APPLICATION', stageName: 'Loan Application', stageOrder: 3 },
-                        { stageCode: 'DOCUMENTATION', stageName: 'Documentation', stageOrder: 4 },
-                        { stageCode: 'APPROVAL', stageName: 'Approval', stageOrder: 5 },
-                        { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
-                        { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
-                      ];
-                    } else {
-                      // Default fallback stages
-                      stages = [
-                        { stageCode: 'NEW_LEAD', stageName: 'New Lead', stageOrder: 1 },
-                        { stageCode: 'REVIEW', stageName: 'Review', stageOrder: 2 },
-                        { stageCode: 'LOAN_APPLICATION', stageName: 'Loan Application', stageOrder: 3 },
-                        { stageCode: 'DOCUMENTATION', stageName: 'Documentation', stageOrder: 4 },
-                        { stageCode: 'APPROVAL', stageName: 'Approval', stageOrder: 5 },
-                        { stageCode: 'CLOSE_WIN', stageName: 'Close Win', stageOrder: 6 },
-                        { stageCode: 'CLOSE_LOST', stageName: 'Close Lost', stageOrder: 7 }
-                      ];
                     }
                   }
                   
-                  console.log('🔥 [TL DASHBOARD] Stages for funnel:', stages);
                   return stages;
                 })()}
               />
@@ -1135,6 +875,35 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
                 </div>
               </div>
             </div>
+
+            {/* Recent Activity */}
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity - {currentUser?.department} Department</h3>
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {tasks.slice(0, 5).map((task, index) => (
+                  <div key={task.id || index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900 truncate">{task.taskName || task.name || 'Task'}</p>
+                      <p className="text-xs text-gray-500">
+                        {task.status} • {task.department}
+                      </p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      task.status === 'COMPLETED' || task.status === 'DONE' ? 'bg-green-100 text-green-800' :
+                      task.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {task.status}
+                    </span>
+                  </div>
+                ))}
+                {tasks.length === 0 && (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">No recent activities</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </>
       ) : (
@@ -1148,5 +917,4 @@ export default function TLDepartmentDashboard({ userName, userRole }) {
       )}
     </div>
   );
-
-  }
+}

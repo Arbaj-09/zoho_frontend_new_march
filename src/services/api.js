@@ -4,18 +4,31 @@ export function createApiClient({ baseUrl = "" } = {}) {
 
   async function request(path, { method = "GET", body, customHeaders = {} } = {}) {
 
-    // Get auth token and user data from localStorage
-
-    const token = localStorage.getItem("auth_token");
-
-    const userData = localStorage.getItem("user_data");
-
+    // Get auth token and user data from localStorage AND sessionStorage
+    const token = localStorage.getItem("auth_token") || localStorage.getItem("token") || sessionStorage.getItem("token");
+    
+    // Try multiple sources for user data
+    let userData = localStorage.getItem("user_data") || localStorage.getItem("authUser") || localStorage.getItem("user");
+    if (!userData) {
+      userData = sessionStorage.getItem("authUser") || sessionStorage.getItem("user");
+    }
+    
     const user = localStorage.getItem("user");
-
-    const userRole = localStorage.getItem("user_role");
+    
+    const userRole = localStorage.getItem("user_role") || sessionStorage.getItem("user_role");
 
     
 
+    // 🔥 DEBUG: Log all storage sources
+    console.log('🔍 [API] Storage sources:', {
+      localStorage_token: localStorage.getItem("token"),
+      sessionStorage_token: sessionStorage.getItem("token"),
+      localStorage_userData: localStorage.getItem("user_data"),
+      sessionStorage_authUser: sessionStorage.getItem("authUser"),
+      localStorage_userRole: localStorage.getItem("user_role"),
+      sessionStorage_userRole: sessionStorage.getItem("user_role")
+    });
+    
     // 🔥 GET USER INFO FOR DEPARTMENT ISOLATION
 
     const parsedUser = userData ? JSON.parse(userData) : (user ? JSON.parse(user) : null);
@@ -26,6 +39,16 @@ export function createApiClient({ baseUrl = "" } = {}) {
 
     // 🔥 FIX: Extract role from parsed user data, not localStorage
     const actualUserRole = parsedUser?.role || parsedUser?.roleName || userRole;
+    
+    // 🔥 DEBUG: Log role extraction
+    console.log('🔍 [API] Role extraction:', {
+      parsedUser: parsedUser,
+      parsedUserRole: parsedUser?.role,
+      parsedUserRoleName: parsedUser?.roleName,
+      localStorageUserRole: userRole,
+      finalActualUserRole: actualUserRole,
+      path: path
+    });
 
 
 
