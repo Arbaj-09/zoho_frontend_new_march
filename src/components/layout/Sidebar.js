@@ -120,6 +120,10 @@ const filterSectionsByRoleAndDepartment = (sections, user) => {
 
     "unolo-dashboard": ["ADMIN", "MANAGER", "TL"], // TL gets department-wise dashboard
 
+    "expenses-overview": ["ADMIN", "MANAGER", "TL", "ACCOUNT"], // All roles can access expenses overview
+
+    "expenses-invoices": ["ADMIN", "MANAGER", "ACCOUNT"] // Only Admin, Manager, and Account can access invoices
+
   };
 
   
@@ -139,8 +143,6 @@ const filterSectionsByRoleAndDepartment = (sections, user) => {
     "unolo-order",
 
     "unolo-sites",
-
-    "expenses-overview",
 
     "expenses-invoices"
 
