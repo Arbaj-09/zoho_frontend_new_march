@@ -15,7 +15,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 
 export default function ExpenseOverviewPage() {
@@ -164,13 +164,27 @@ export default function ExpenseOverviewPage() {
     setExpenses(prev => prev.map(e => e.id === id ? updated : e));
   }
 
-  function exportExcel() {
-    const worksheet = XLSX.utils.json_to_sheet(filtered);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Expenses");
-    const excelBuffer = XLSX.write(workbook, {bookType: "xlsx", type: "array"});
-    const fileData = new Blob([excelBuffer]);
-    saveAs(fileData, "expenses.xlsx");
+  async function exportExcel() {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Expenses");
+    
+    worksheet.columns = [
+      { header: "Employee Name", key: "employeeName", width: 20 },
+      { header: "Category", key: "category", width: 20 },
+      { header: "Amount", key: "amount", width: 15 },
+      { header: "Status", key: "status", width: 15 },
+      { header: "Date", key: "expenseDate", width: 20 }
+    ];
+    
+    filtered.forEach(expense => {
+      worksheet.addRow(expense);
+    });
+    
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    saveAs(blob, "expenses.xlsx");
   }
 
   const summary = {
@@ -667,3 +681,4 @@ function StatusBadge({status}){
     </span>
   )
 }
+

@@ -10,6 +10,11 @@ import { getCurrentUserName, getCurrentUserRole } from '@/utils/userUtils';
 export default function EmployeesPage() {
   const router = useRouter();
   
+  // ✅ FIXED: Add missing state variables
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  
   // ✅ FIXED: Get dynamic user data
   const userName = getCurrentUserName();
   const userRole = getCurrentUserRole();
