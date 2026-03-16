@@ -137,7 +137,7 @@ export default function OrganizationPage() {
     const handleExport = async () => {
         try {
             console.log('Exporting employees...');
-            const response = await fetch('http://localhost:8080/api/employees/export/excel', {
+            const response = await fetch('https://api.yashrajent.com/api/employees/export/excel', {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token') || 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbkB5YXNoZW50ZXJwcmlzZXMuY29tIiwiaWF0IjoxNzM1ODk2NzQ0LCJleHAiOjE3MzU5ODAzNDR9.test'}`
@@ -255,6 +255,8 @@ export default function OrganizationPage() {
             
             const mapped = (data || []).map((e) => {
                 console.log('Mapping employee:', e.id, 'roleName:', e.roleName, 'tlId:', e.tlId, 'tlDepartmentName:', e.tlDepartmentName);
+                console.log('Employee profileImageUrl:', e.profileImageUrl); // Debug image URL
+                
                 const name = e.firstName
                     ? `${e.firstName} ${e.lastName || ""}`.trim()
                     : e.employeeId || e.userId || "-";
@@ -323,7 +325,8 @@ export default function OrganizationPage() {
                 activeTabKey: "employees"
             }}
         >
-            <div className="flex flex-col space-y-4">
+            {/* Suppress hydration warning - temporary fix */}
+            <div suppressHydrationWarning={true} className="flex flex-col space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                         <div className="text-lg font-semibold text-slate-900">Employee</div>
@@ -418,9 +421,11 @@ export default function OrganizationPage() {
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4">
                                             <div className="flex items-center">
-                                                {employee.profileImageUrl ? (
+                                                {employee.profileImageUrl && employee.profileImageUrl !== 'null' && employee.profileImageUrl !== '' ? (
                                                     <img
-                                                        src={`http://localhost:8080${employee.profileImageUrl}`}
+                                                        src={employee.profileImageUrl.startsWith('http') 
+                                                            ? employee.profileImageUrl 
+                                                            : `https://api.yashrajent.com${employee.profileImageUrl}`}
                                                         alt={employee.name}
                                                         className="w-10 h-10 rounded-full object-cover border-2 border-gray-300 mr-4"
                                                         onError={(e) => {
@@ -454,9 +459,11 @@ export default function OrganizationPage() {
                                             {employee.gender}
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                            {employee.profileImageUrl ? (
+                                            {employee.profileImageUrl && employee.profileImageUrl !== 'null' && employee.profileImageUrl !== '' ? (
                                                 <img
-                                                    src={`http://localhost:8080${employee.profileImageUrl}`}
+                                                    src={employee.profileImageUrl.startsWith('http') 
+                                                        ? employee.profileImageUrl 
+                                                        : `https://api.yashrajent.com${employee.profileImageUrl}`}
                                                     alt={employee.name}
                                                     className="w-8 h-8 rounded-full object-cover border border-gray-300"
                                                     onError={(e) => {
@@ -607,7 +614,7 @@ export default function OrganizationPage() {
                         </div>
                     </div>
                 </div>
-            </div>
+            
             {openAddForm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
                     <div className="bg-white rounded-lg max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
@@ -643,25 +650,17 @@ export default function OrganizationPage() {
                             </button>
                         </div>
                         
-                        <div className="mb-6">
-                            <p className="text-gray-600 mb-4">
-                                Are you sure you want to send login credentials to:
+                        <div className="mb-4">
+                            <p className="text-sm text-gray-600">
+                                Are you sure you want to send login details to <strong>{selectedEmployee.name}</strong> at <strong>{selectedEmployee.email}</strong>?
                             </p>
-                            <div className="bg-gray-50 p-4 rounded-lg">
-                                <p className="font-medium text-gray-900">{selectedEmployee.name}</p>
-                                <p className="text-sm text-gray-600">{selectedEmployee.email || selectedEmployee.originalData?.email || 'N/A'}</p>
-                                <p className="text-sm text-gray-500">Employee ID: {selectedEmployee.employeeId}</p>
-                                <p className="text-sm text-gray-500 mt-2">
-                                    <span className="font-medium">Username:</span> {selectedEmployee.email || selectedEmployee.originalData?.email || 'N/A'}
-                                </p>
-                            </div>
                         </div>
                         
                         {emailMessage && (
-                            <div className={`mb-4 p-3 rounded-lg text-sm ${
-                                emailStatus === 'success' ? 'bg-green-100 text-green-700' :
-                                emailStatus === 'error' ? 'bg-red-100 text-red-700' :
-                                'bg-blue-100 text-blue-700'
+                            <div className={`mb-4 p-3 rounded-md text-sm ${
+                                emailStatus === 'success' ? 'bg-green-100 text-green-800' : 
+                                emailStatus === 'error' ? 'bg-red-100 text-red-800' : 
+                                'bg-blue-100 text-blue-800'
                             }`}>
                                 {emailMessage}
                             </div>
@@ -708,6 +707,7 @@ export default function OrganizationPage() {
                 </div>
             )}
 
+            </div>
         </DashboardLayout>
     );
 }

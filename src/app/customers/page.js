@@ -370,7 +370,7 @@ export default function CustomersPage() {
             // 🔐 CRITICAL: Get user for backend authorization using tab-safe storage
             const authUser = getTabSafeAuthUser();
             
-            const addressesResponse = await fetch(`http://localhost:8080/api/clients/${customer.id}/addresses`, {
+            const addressesResponse = await fetch(`https://api.yashrajent.com/api/clients/${customer.id}/addresses`, {
               headers: {
                 "X-User-Id": authUser?.id || "",
                 "X-User-Role": authUser?.role || "",
@@ -867,7 +867,7 @@ export default function CustomersPage() {
 
     try {
 
-      const response = await fetch('http://localhost:8080/api/clients/geocode', {
+      const response = await fetch('https://api.yashrajent.com/api/clients/geocode', {
 
         method: 'POST',
 
@@ -981,7 +981,7 @@ export default function CustomersPage() {
 
     try {
 
-      const response = await fetch('http://localhost:8080/api/clients/reverse-geocode', {
+      const response = await fetch('https://api.yashrajent.com/api/clients/reverse-geocode', {
 
         method: 'POST',
 
@@ -1230,7 +1230,7 @@ export default function CustomersPage() {
 
         clientApi.getFieldValuesAsMap(customer.id).catch(() => ({})),
 
-        fetch(`http://localhost:8080/api/clients/${customer.id}/addresses`).then(res => res.ok ? res.json() : []).catch(() => [])
+        fetch(`https://api.yashrajent.com/api/clients/${customer.id}/addresses`).then(res => res.ok ? res.json() : []).catch(() => [])
 
       ]);
 
@@ -1698,7 +1698,7 @@ export default function CustomersPage() {
 
         // Update addresses using POST for existing customer (backend uses upsert)
 
-        await fetch(`http://localhost:8080/api/clients/${savedCustomer.id}/addresses`, {
+        await fetch(`https://api.yashrajent.com/api/clients/${savedCustomer.id}/addresses`, {
 
           method: 'POST',
 
@@ -1725,7 +1725,7 @@ export default function CustomersPage() {
 
         // Then create addresses using POST for new customer
 
-        await fetch(`http://localhost:8080/api/clients/${savedCustomer.id}/addresses`, {
+        await fetch(`https://api.yashrajent.com/api/clients/${savedCustomer.id}/addresses`, {
 
           method: 'POST',
 
@@ -3868,7 +3868,7 @@ export default function CustomersPage() {
 
                                 try {
 
-                                  const response = await fetch(`http://localhost:8080/api/banks/${bankId}`);
+                                  const response = await fetch(`https://api.yashrajent.com/api/banks/${bankId}`);
 
                                   if (response.ok) {
 

@@ -894,7 +894,7 @@ export default function CustomerDetailPage() {
 
         const authUser = loggedInUser;
 
-        const addressesResponse = await fetch(`http://localhost:8080/api/clients/${customerId}/addresses`, {
+        const addressesResponse = await fetch(`https://api.yashrajent.com/api/clients/${customerId}/addresses`, {
 
           headers: {
 
@@ -3514,7 +3514,7 @@ export default function CustomerDetailPage() {
 
 
 
-      const res = await fetch("http://localhost:8080/api/case-documents/upload", {
+      const res = await fetch("https://api.yashrajent.com/api/case-documents/upload", {
 
 
 
@@ -3646,7 +3646,7 @@ export default function CustomerDetailPage() {
 
 
 
-    window.open(`http://localhost:8080/api/case-documents/download/${doc.id}`, "_blank");
+    window.open(`https://api.yashrajent.com/api/case-documents/download/${doc.id}`, "_blank");
 
 
 
@@ -10450,7 +10450,7 @@ async function ensureDealId() {
 
 
 
-                              src={`http://localhost:8080/api/case-documents/view/${viewingDoc.id}`}
+                              src={`https://api.yashrajent.com/api/case-documents/view/${viewingDoc.id}`}
 
 
 
@@ -10470,7 +10470,7 @@ async function ensureDealId() {
 
 
 
-                                window.open(`http://localhost:8080/api/case-documents/view/${viewingDoc.id}`, '_blank');
+                                window.open(`https://api.yashrajent.com/api/case-documents/view/${viewingDoc.id}`, '_blank');
 
 
 

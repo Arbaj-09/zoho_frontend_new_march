@@ -380,21 +380,22 @@ export default function Topbar({ tabs, activeTabKey, onTabClick }) {
     <div className="border-b border-slate-200/70 bg-white/80 px-4 sm:px-6 backdrop-blur relative z-10">
       <div className="flex items-center justify-between gap-4">
         <div className="flex gap-4 sm:gap-6 overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent max-w-full">
-          {tabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => onTabClick(tab)}
-              className={`py-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
-                ${
-                  activeTabKey === tab.key
+          {tabs.map(tab => {
+            const isActive = activeTabKey === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => onTabClick(tab)}
+                className={`py-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  isActive
                     ? 'border-indigo-600 text-slate-900'
                     : 'border-transparent text-slate-500 hover:text-slate-900'
-                }
-              `}
-            >
-              {tab.label}
-            </button>
-          ))}
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
         <div className="relative flex-shrink-0">
