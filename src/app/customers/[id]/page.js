@@ -12,7 +12,7 @@ import ApprovalModal from "@/components/common/ApprovalModal";
 
 
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 
 
@@ -148,7 +148,11 @@ import {
 
   MapPin,
 
+  Map,
 
+  Home,
+
+  Shield,
 
   Phone,
 
@@ -205,8 +209,65 @@ export default function CustomerDetailPage() {
   // In App Router client components, read params via useParams()
 
   const params = useParams();
+  const router = useRouter();
 
   const customerId = Number(params?.id);
+
+  const openCustomerEdit = async () => {
+    try {
+      const dealsRes = await backendApi.get(`/deals?clientId=${customerId}`).catch(() => []);
+      const allDeals = Array.isArray(dealsRes?.content) ? dealsRes.content
+        : Array.isArray(dealsRes) ? dealsRes : [];
+      const latestDeal = allDeals
+        .slice()
+        .sort((a, b) => {
+          const td = new Date(b.createdAt) - new Date(a.createdAt);
+          return td !== 0 ? td : (Number(b.id) || 0) - (Number(a.id) || 0);
+        })[0] ?? null;
+
+      const dept = latestDeal?.department || "";
+      let stages = [];
+      if (dept) {
+        stages = await fetchStagesForDepartment(dept).catch(() => []);
+      }
+
+      // ── Fetch fresh addresses ──
+      const authUser = loggedInUser;
+      const addrResponse = await fetch(
+        `http://localhost:8080/api/clients/${customerId}/addresses`,
+        {
+          headers: {
+            "X-User-Id":         authUser?.id         ?? "",
+            "X-User-Role":       authUser?.role        ?? "",
+            "X-User-Department": authUser?.department  ?? "",
+          },
+        }
+      ).catch(() => null);
+      const addressesRaw = addrResponse?.ok ? await addrResponse.json() : [];
+      setEditAddresses(mapAddressesToEditForm(addressesRaw));
+
+      setEditDepartment(dept);
+      setEditAvailableStages(stages || []);
+      setEditForm({
+        id: customer?.id,
+        name: customer?.name || "",
+        email: customer?.email || "",
+        phone: customer?.contactPhone || "",
+        contactName: customer?.contactName || "",
+        contactNumber: customer?.contactNumber || "",
+        bankId: String(bank?.id || latestDeal?.bankId || ""),
+        department: dept,
+        stage: (latestDeal?.stageCode || latestDeal?.stage || "").toUpperCase(),
+        valueAmount: latestDeal?.valueAmount || "",
+        closingDate: latestDeal?.closingDate || "",
+        description: latestDeal?.description || "",
+      });
+      setShowCustomerEditModal(true);
+    } catch (err) {
+      console.error("Failed to open edit:", err);
+      addToast("Failed to load customer details", "error");
+    }
+  };
 
 
 
@@ -748,9 +809,150 @@ export default function CustomerDetailPage() {
 
   const [showCustomerEditModal, setShowCustomerEditModal] = useState(false);
 
-
+  const [editDepartment, setEditDepartment] = useState("");
+  const [editAvailableStages, setEditAvailableStages] = useState([]);
+  const [editForm, setEditForm] = useState({
+    id: null,
+    name: "",
+    email: "",
+    phone: "",
+    contactName: "",
+    contactNumber: "",
+    bankId: "",
+    department: "",
+    stage: "",
+    valueAmount: "",
+    closingDate: "",
+    description: "",
+  });
 
   const [customerEditForm, setCustomerEditForm] = useState({});
+
+  // Address state for edit modal
+  const [editAddresses, setEditAddresses] = useState({
+    primary: {
+      enabled: true, id: null,
+      addressLine: "", city: "", state: "", pincode: "", latitude: "", longitude: ""
+    },
+    branch: {
+      enabled: false, id: null,
+      addressLine: "", city: "", state: "", pincode: "", latitude: "", longitude: ""
+    },
+    police: {
+      enabled: false, id: null,
+      addressLine: "", city: "", state: "", pincode: "", latitude: "", longitude: ""
+    },
+    tahsil: {
+      enabled: false, id: null,
+      addressLine: "", city: "", state: "", pincode: "", latitude: "", longitude: ""
+    },
+  });
+
+  const handleEditAddressToggle = (addressType, enabled) => {
+    setEditAddresses(prev => ({
+      ...prev,
+      [addressType]: {
+        ...prev[addressType],
+        enabled,
+        ...(enabled ? {} : { addressLine: "", city: "", state: "", pincode: "", latitude: "", longitude: "" })
+      }
+    }));
+  };
+
+  const handleEditAddressFieldChange = (addressType, field, value) => {
+    setEditAddresses(prev => ({
+      ...prev,
+      [addressType]: { ...prev[addressType], [field]: value }
+    }));
+  };
+
+  const handleEditAddressGeocode = async (addressType) => {
+    const address = editAddresses[addressType];
+    if (!address.addressLine?.trim() || address.addressLine.trim().length < 3) {
+      addToast("Please enter a complete address first", "warning");
+      return;
+    }
+    try {
+      const response = await fetch('http://localhost:8080/api/clients/geocode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          addressLine: address.addressLine,
+          city: address.city,
+          pincode: address.pincode,
+          state: address.state,
+          country: "India"
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setEditAddresses(prev => ({
+          ...prev,
+          [addressType]: {
+            ...prev[addressType],
+            latitude: data.latitude.toString(),
+            longitude: data.longitude.toString()
+          }
+        }));
+        addToast("Address geocoded successfully!", "success");
+      } else {
+        addToast(data.message || 'Could not geocode address', "warning");
+      }
+    } catch (error) {
+      addToast('Failed to geocode address', "error");
+    }
+  };
+
+  const handleEditReverseGeocode = async (addressType) => {
+    const address = editAddresses[addressType];
+    const lat = parseFloat(address.latitude);
+    const lng = parseFloat(address.longitude);
+    if (!lat || !lng) { addToast("Enter latitude and longitude first", "warning"); return; }
+    try {
+      const response = await fetch('http://localhost:8080/api/clients/reverse-geocode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude: lat, longitude: lng })
+      });
+      const data = await response.json();
+      if (data.success) {
+        const parts = data.address.split(',');
+        if (parts.length >= 2) {
+          handleEditAddressFieldChange(addressType, 'addressLine', parts[0].trim());
+          handleEditAddressFieldChange(addressType, 'city', parts[1].trim());
+          addToast("Address updated from coordinates!", "success");
+        }
+      } else {
+        addToast(data.message || 'Could not reverse geocode', "warning");
+      }
+    } catch { addToast('Failed to reverse geocode', "error"); }
+  };
+
+  // Helper: convert backend addresses array → editAddresses object
+  const mapAddressesToEditForm = (addresses = []) => {
+    const result = {
+      primary: { enabled: true,  id: null, addressLine: "", city: "", state: "", pincode: "", latitude: "", longitude: "" },
+      branch:  { enabled: false, id: null, addressLine: "", city: "", state: "", pincode: "", latitude: "", longitude: "" },
+      police:  { enabled: false, id: null, addressLine: "", city: "", state: "", pincode: "", latitude: "", longitude: "" },
+      tahsil:  { enabled: false, id: null, addressLine: "", city: "", state: "", pincode: "", latitude: "", longitude: "" },
+    };
+    if (!Array.isArray(addresses)) return result;
+    addresses.forEach(addr => {
+      const key = (addr.addressType ?? "").toLowerCase();
+      if (!(key in result)) return;
+      result[key] = {
+        enabled: true,
+        id: addr.id ?? null,
+        addressLine: addr.addressLine ?? "",
+        city:        addr.city        ?? "",
+        state:       addr.state       ?? "",
+        pincode:     addr.pincode     ?? "",
+        latitude:    addr.latitude  != null ? String(addr.latitude)  : "",
+        longitude:   addr.longitude != null ? String(addr.longitude) : "",
+      };
+    });
+    return result;
+  };
 
 
 
@@ -894,7 +1096,7 @@ export default function CustomerDetailPage() {
 
         const authUser = loggedInUser;
 
-        const addressesResponse = await fetch(`https://api.yashrajent.com/api/clients/${customerId}/addresses`, {
+        const addressesResponse = await fetch(`http://localhost:8080/api/clients/${customerId}/addresses`, {
 
           headers: {
 
@@ -3514,7 +3716,7 @@ export default function CustomerDetailPage() {
 
 
 
-      const res = await fetch("https://api.yashrajent.com/api/case-documents/upload", {
+      const res = await fetch("http://localhost:8080/api/case-documents/upload", {
 
 
 
@@ -3646,7 +3848,7 @@ export default function CustomerDetailPage() {
 
 
 
-    window.open(`https://api.yashrajent.com/api/case-documents/download/${doc.id}`, "_blank");
+    window.open(`http://localhost:8080/api/case-documents/download/${doc.id}`, "_blank");
 
 
 
@@ -4984,231 +5186,148 @@ async function ensureDealId() {
 
   };
 
-
-
-
-
-
-
-  // Add customer edit function
-
-
-
-  const openCustomerEdit = () => {
-
-
-
-    setCustomerEditForm({
-
-
-
-      id: customer?.id,
-
-
-
-      name: customer?.name || "",
-
-
-
-      email: customer?.email || "",
-
-
-
-      phone: customer?.contactPhone || "",
-
-
-
-      address: customer?.address || "",
-
-
-
-      city: customer?.city || "",
-
-
-
-      pincode: customer?.pincode || "",
-
-
-
-      state: customer?.state || "",
-
-
-
-      country: customer?.country || "",
-
-
-
-      contactName: customer?.contactName || "",
-
-
-
-      contactNumber: customer?.contactNumber || "",
-
-
-
-      bankId: bank?.id || "",
-
-
-
-    });
-
-
-
-    setShowCustomerEditModal(true);
-
-
-
-  };
-
-
-
-
-
-
-
-  // Add customer update function
-
-
-
   const handleCustomerUpdate = async () => {
-
-
-
     try {
-
-
-
-      const payload = {
-
-
-
-        name: customerEditForm.name,
-
-
-
-        email: customerEditForm.email,
-
-
-
-        contactPhone: customerEditForm.phone,
-
-
-
-        address: customerEditForm.address,
-
-
-
-        city: customerEditForm.city,
-
-
-
-        pincode: customerEditForm.pincode,
-
-
-
-        state: customerEditForm.state,
-
-
-
-        country: customerEditForm.country,
-
-
-
-        contactName: customerEditForm.contactName,
-
-
-
-        contactNumber: customerEditForm.contactNumber,
-
-
-
-      };
-
-
-
-
-
-
-
-      await clientApi.update(customerEditForm.id, payload);
-
-
-
-      
-
-
-
-      // Update local state
-
-
-
-      setCustomer(prev => ({ ...prev, ...payload }));
-
-
-
-      
-
-
-
-      // Update bank if changed
-
-
-
-      if (customerEditForm.bankId !== bank?.id) {
-
-
-
-        const selectedBank = banks.find(b => b.id === customerEditForm.bankId);
-
-
-
-        setBank(selectedBank);
-
-
-
+      if (!editForm.name?.trim()) {
+        addToast("Customer name is required", "error");
+        return;
+      }
+      if (!editAddresses.primary.enabled || !editAddresses.primary.addressLine?.trim() || !editAddresses.primary.city?.trim()) {
+        addToast("Primary address (Address Line + City) is required", "error");
+        return;
+      }
+      if (!editAddresses.primary.latitude || !editAddresses.primary.longitude) {
+        addToast("Primary address coordinates (Lat/Lng) are required", "error");
+        return;
       }
 
+      // Build addresses payload
+      const addresses = [];
+      if (editAddresses.primary.enabled) {
+        addresses.push({
+          id: editAddresses.primary.id || null,
+          addressType: "PRIMARY",
+          addressLine: editAddresses.primary.addressLine.trim(),
+          city:        editAddresses.primary.city.trim(),
+          state:       editAddresses.primary.state?.trim() || "",
+          pincode:     editAddresses.primary.pincode?.trim() || "",
+          latitude:    parseFloat(editAddresses.primary.latitude),
+          longitude:   parseFloat(editAddresses.primary.longitude),
+          isPrimary: true,
+        });
+      }
+      if (editAddresses.branch.enabled) {
+        addresses.push({
+          id: editAddresses.branch.id || null,
+          addressType: "BRANCH",
+          addressLine: editAddresses.branch.addressLine.trim(),
+          city:        editAddresses.branch.city?.trim() || "",
+          state:       editAddresses.branch.state?.trim() || "",
+          pincode:     editAddresses.branch.pincode?.trim() || "",
+          latitude:    parseFloat(editAddresses.branch.latitude) || null,
+          longitude:   parseFloat(editAddresses.branch.longitude) || null,
+          isPrimary: false,
+        });
+      }
+      if (editAddresses.police.enabled) {
+        addresses.push({
+          id: editAddresses.police.id || null,
+          addressType: "POLICE",
+          addressLine: editAddresses.police.addressLine.trim(),
+          city:        editAddresses.police.city?.trim() || "",
+          state:       editAddresses.police.state?.trim() || "",
+          pincode:     editAddresses.police.pincode?.trim() || "",
+          latitude:    parseFloat(editAddresses.police.latitude) || null,
+          longitude:   parseFloat(editAddresses.police.longitude) || null,
+          isPrimary: false,
+        });
+      }
+      if (editAddresses.tahsil.enabled) {
+        addresses.push({
+          id: editAddresses.tahsil.id || null,
+          addressType: "TAHSIL",
+          addressLine: editAddresses.tahsil.addressLine.trim(),
+          city:        editAddresses.tahsil.city?.trim() || "",
+          state:       editAddresses.tahsil.state?.trim() || "",
+          pincode:     editAddresses.tahsil.pincode?.trim() || "",
+          latitude:    parseFloat(editAddresses.tahsil.latitude) || null,
+          longitude:   parseFloat(editAddresses.tahsil.longitude) || null,
+          isPrimary: false,
+        });
+      }
 
+      // Save customer
+      const customerPayload = {
+        name:          editForm.name.trim(),
+        email:         editForm.email?.trim() || null,
+        contactPhone:  editForm.phone?.trim() || null,
+        contactName:   editForm.contactName || "",
+        contactNumber: editForm.contactNumber?.trim() || null,
+      };
+      await clientApi.update(editForm.id, customerPayload);
 
-      
+      // Save addresses
+      await fetch(`http://localhost:8080/api/clients/${editForm.id}/addresses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(addresses),
+      });
 
+      // Update deal if exists
+      try {
+        const dealsRes = await backendApi.get(`/deals?clientId=${customerId}`).catch(() => []);
+        const allDeals = Array.isArray(dealsRes?.content) ? dealsRes.content
+          : Array.isArray(dealsRes) ? dealsRes : [];
+        const latestDeal = allDeals
+          .slice()
+          .sort((a, b) => {
+            const td = new Date(b.createdAt) - new Date(a.createdAt);
+            return td !== 0 ? td : (Number(b.id) || 0) - (Number(a.id) || 0);
+          })[0] ?? null;
+        if (latestDeal?.id) {
+          const dealPayload = {
+            name:        editForm.name.trim(),
+            clientId:    customerId,
+            bankId:      editForm.bankId ? Number(editForm.bankId) : null,
+            stageCode:   editForm.stage,
+            department:  editDepartment,
+            valueAmount: Number(editForm.valueAmount) || 0,
+            closingDate: editForm.closingDate || null,
+            description: editForm.description || "",
+          };
+          await backendApi.put(`/deals/${latestDeal.id}`, dealPayload);
+        }
+      } catch (dealErr) {
+        console.error("Deal update failed:", dealErr);
+      }
 
+      // Refresh local state
+      setCustomer(prev => ({
+        ...prev,
+        name:          customerPayload.name,
+        email:         customerPayload.email,
+        contactPhone:  customerPayload.contactPhone,
+        contactName:   customerPayload.contactName,
+        contactNumber: customerPayload.contactNumber,
+        addresses,
+      }));
+
+      if (editForm.bankId && editForm.bankId !== String(bank?.id)) {
+        const selectedBank = banks.find(b => String(b.id) === String(editForm.bankId));
+        if (selectedBank) setBank(selectedBank);
+      }
 
       setShowCustomerEditModal(false);
-
-
-
       showSuccess("Customer updated successfully");
-
-
-
+      await fetchDeal();
+      await loadCustomer();
     } catch (err) {
-
-
-
       console.error("Failed to update customer:", err);
-
-
-
       showApiError("Failed to update customer", err);
-
-
-
     }
-
-
-
   };
 
-
-
-
-
-
-
   async function saveTask() {
-
-
 
     const ensuredDealId = await ensureDealId();
 
@@ -6456,10 +6575,6 @@ async function ensureDealId() {
 
 
 
-                  <span className="mr-1.5 text-[10px] uppercase tracking-[0.18em] text-slate-100/80">Case Value</span>
-
-
-
                   {formatCurrency(grandTotal)}
 
 
@@ -6520,49 +6635,7 @@ async function ensureDealId() {
 
 
 
-                <button
-
-
-
-                  onClick={() => setFollow((f) => !f)}
-
-
-
-                  className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-medium transition duration-150 ${
-
-
-
-                    follow
-
-
-
-                      ? "border-emerald-500 bg-emerald-50 text-emerald-700 shadow-[0_0_0_1px_rgba(16,185,129,0.15)]"
-
-
-
-                      : "border-slate-300/80 bg-white/60 text-slate-600 hover:border-indigo-400 hover:text-indigo-600"
-
-
-
-                  }`}
-
-
-
-                >
-
-
-
-                  <span className={`h-1.5 w-1.5 rounded-full ${follow ? "bg-emerald-500" : "bg-slate-300"}`} />
-
-
-
-                  {follow ? "Following" : "Follow record"}
-
-
-
-                </button>
-
-
+                {/* Removed: Follow record button per design request */}
 
               </div>
 
@@ -6672,71 +6745,9 @@ async function ensureDealId() {
 
 
 
-              <div className="flex items-center gap-2 text-xs text-slate-500">
+              {/* Removed: badges and tracking text per design request */}
 
-
-
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
-
-
-
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-
-
-
-                  Completed
-
-
-
-                </span>
-
-
-
-                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
-
-
-
-                  Current Stage
-
-
-
-                </span>
-
-
-
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
-
-
-
-                  <PauseCircle className="h-3.5 w-3.5" />
-
-
-
-                  On Hold
-
-
-
-                </span>
-
-
-
-              </div>
-
-
-
-              <div className="text-xs text-slate-500">
-
-
-
-                Tracking case journey across all legal and billing stages
-
-
-
-              </div>
-
-
-
-            <div className="relative flex items-center gap-4 overflow-x-auto pb-2">
+              <div className="relative flex items-center gap-4 overflow-x-auto pb-2">
 
 
 
@@ -7030,7 +7041,7 @@ async function ensureDealId() {
 
 
 
-                          <div className="text-xs text-slate-500">{bank.branch || "No branch"}</div>
+                          <div className="text-xs text-slate-500">{deal?.branchName || bank.branchName || bank.branch || "-"}</div>
 
 
 
@@ -10450,7 +10461,7 @@ async function ensureDealId() {
 
 
 
-                              src={`https://api.yashrajent.com/api/case-documents/view/${viewingDoc.id}`}
+                              src={`http://localhost:8080/api/case-documents/view/${viewingDoc.id}`}
 
 
 
@@ -10470,7 +10481,7 @@ async function ensureDealId() {
 
 
 
-                                window.open(`https://api.yashrajent.com/api/case-documents/view/${viewingDoc.id}`, '_blank');
+                                window.open(`http://localhost:8080/api/case-documents/view/${viewingDoc.id}`, '_blank');
 
 
 
@@ -14556,664 +14567,425 @@ async function ensureDealId() {
 
 
 
-
-
-
-
-      {/* Customer Edit Modal */}
-
-
-
       {showCustomerEditModal && (
-
-
-
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-
-
-
-          <div className="w-full max-w-md rounded-2xl border border-slate-200/80 bg-white/95 shadow-2xl backdrop-blur-md">
-
-
-
-            <div className="flex items-center justify-between border-b border-slate-200/80 p-6">
-
-
-
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 shadow-2xl backdrop-blur-md">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-200/80 px-6 py-4 sticky top-0 bg-white/95 z-10">
               <h2 className="text-lg font-semibold text-slate-900">Edit Customer</h2>
-
-
-
-              <button
-
-
-
-                onClick={() => setShowCustomerEditModal(false)}
-
-
-
-                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-
-
-
-              >
-
-
-
+              <button onClick={() => setShowCustomerEditModal(false)} className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">
                 <X className="h-5 w-5" />
-
-
-
               </button>
-
-
-
             </div>
 
-
-
-            
-
-
-
-            <div className="p-6 space-y-4">
-
-
-
-            <div>
-
-
-
-              <label className="block text-sm font-medium text-slate-700 mb-1">Customer Name</label>
-
-
-
-              <input
-
-
-
-                type="text"
-
-
-
-                value={customerEditForm.name || ""}
-
-
-
-                onChange={(e) => setCustomerEditForm({...customerEditForm, name: e.target.value})}
-
-
-
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-              />
-
-
-
-            </div>
-
-
-
-            
-
-
-
-            <div>
-
-
-
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-
-
-
-              <input
-
-
-
-                type="email"
-
-
-
-                value={customerEditForm.email || ""}
-
-
-
-                onChange={(e) => setCustomerEditForm({...customerEditForm, email: e.target.value})}
-
-
-
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-              />
-
-
-
-            </div>
-
-
-
-            
-
-
-
-            <div>
-
-
-
-              <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
-
-
-
-              <input
-
-
-
-                type="tel"
-
-
-
-                value={customerEditForm.phone || ""}
-
-
-
-                onChange={(e) => setCustomerEditForm({...customerEditForm, phone: e.target.value})}
-
-
-
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-              />
-
-
-
-            </div>
-
-
-
-
-
-
-
-            {/* Address Section */}
-
-
-
-            <div className="border-t pt-4">
-
-
-
-              <h4 className="text-sm font-medium text-slate-900 mb-3">Address Information</h4>
-
-
-
-              <div className="space-y-3">
-
-
-
-                <div>
-
-
-
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
-
-
-
-                  <textarea
-
-
-
-                    value={customerEditForm.address || ""}
-
-
-
-                    onChange={(e) => setCustomerEditForm({...customerEditForm, address: e.target.value})}
-
-
-
-                    rows={3}
-
-
-
-                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-                  />
-
-
-
-                </div>
-
-
-
-                
-
-
-
+            <div className="p-6 space-y-6">
+
+              {/* ── Customer Information ── */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                  <User className="h-4 w-4 text-slate-500" /> Customer Information
+                </h3>
                 <div className="grid grid-cols-2 gap-3">
-
-
-
-                  <div>
-
-
-
-                    <label className="block text-sm font-medium text-slate-700 mb-1">City</label>
-
-
-
-                    <input
-
-
-
-                      type="text"
-
-
-
-                      value={customerEditForm.city || ""}
-
-
-
-                      onChange={(e) => setCustomerEditForm({...customerEditForm, city: e.target.value})}
-
-
-
-                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-                    />
-
-
-
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Customer Name <span className="text-rose-500">*</span></label>
+                    <input type="text" value={editForm.name} onChange={(e) => setEditForm({...editForm, name: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Customer name" />
                   </div>
-
-
-
                   <div>
-
-
-
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Pincode</label>
-
-
-
-                    <input
-
-
-
-                      type="text"
-
-
-
-                      value={customerEditForm.pincode || ""}
-
-
-
-                      onChange={(e) => setCustomerEditForm({...customerEditForm, pincode: e.target.value})}
-
-
-
-                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-                    />
-
-
-
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Email</label>
+                    <input type="email" value={editForm.email} onChange={(e) => setEditForm({...editForm, email: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="email@example.com" />
                   </div>
-
-
-
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Phone</label>
+                    <input type="tel" value={editForm.phone} onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Phone number" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Contact Person</label>
+                    <input type="text" value={editForm.contactName} onChange={(e) => setEditForm({...editForm, contactName: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Contact person name" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Contact Number</label>
+                    <input type="tel" value={editForm.contactNumber} onChange={(e) => setEditForm({...editForm, contactNumber: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Contact number" />
+                  </div>
                 </div>
-
-
-
-                
-
-
-
-                <div className="grid grid-cols-2 gap-3">
-
-
-
-                  <div>
-
-
-
-                    <label className="block text-sm font-medium text-slate-700 mb-1">State</label>
-
-
-
-                    <input
-
-
-
-                      type="text"
-
-
-
-                      value={customerEditForm.state || ""}
-
-
-
-                      onChange={(e) => setCustomerEditForm({...customerEditForm, state: e.target.value})}
-
-
-
-                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-                    />
-
-
-
-                  </div>
-
-
-
-                  <div>
-
-
-
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Country</label>
-
-
-
-                    <input
-
-
-
-                      type="text"
-
-
-
-                      value={customerEditForm.country || ""}
-
-
-
-                      onChange={(e) => setCustomerEditForm({...customerEditForm, country: e.target.value})}
-
-
-
-                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-                    />
-
-
-
-                  </div>
-
-
-
-                </div>
-
-
-
               </div>
 
-
-
-            </div>
-
-
-
-
-
-
-
-            {/* Contact Section */}
-
-
-
-            <div className="border-t pt-4">
-
-
-
-              <h4 className="text-sm font-medium text-slate-900 mb-3">Contact Information</h4>
-
-
-
-              <div className="space-y-3">
-
-
-
-                <div className="grid grid-cols-2 gap-3">
-
-
-
+              {/* ── Primary Address ── */}
+              <div className="border-t pt-5">
+                <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                  <Home className="h-4 w-4 text-slate-500" /> Primary Address (Required)
+                </h3>
+                <div className="space-y-3 p-4 border border-blue-200 rounded-lg bg-blue-50">
                   <div>
-
-
-
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Contact Name</label>
-
-
-
-                    <input
-
-
-
-                      type="text"
-
-
-
-                      value={customerEditForm.contactName || ""}
-
-
-
-                      onChange={(e) => setCustomerEditForm({...customerEditForm, contactName: e.target.value})}
-
-
-
-                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-                    />
-
-
-
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Address Line <span className="text-rose-500">*</span></label>
+                    <textarea
+                      value={editAddresses.primary.addressLine}
+                      onChange={(e) => handleEditAddressFieldChange('primary', 'addressLine', e.target.value)}
+                      rows={2}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
+                      placeholder="Enter primary address" />
                   </div>
-
-
-
-                  <div>
-
-
-
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Contact Number</label>
-
-
-
-                    <input
-
-
-
-                      type="tel"
-
-
-
-                      value={customerEditForm.contactNumber || ""}
-
-
-
-                      onChange={(e) => setCustomerEditForm({...customerEditForm, contactNumber: e.target.value})}
-
-
-
-                      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-                    />
-
-
-
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">City <span className="text-rose-500">*</span></label>
+                      <input type="text" value={editAddresses.primary.city}
+                        onChange={(e) => handleEditAddressFieldChange('primary', 'city', e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="City" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">State</label>
+                      <input type="text" value={editAddresses.primary.state}
+                        onChange={(e) => handleEditAddressFieldChange('primary', 'state', e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="State" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Pincode</label>
+                      <input type="text" value={editAddresses.primary.pincode}
+                        onChange={(e) => handleEditAddressFieldChange('primary', 'pincode', e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="Pincode" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Latitude <span className="text-rose-500">*</span></label>
+                      <input type="number" step="any" value={editAddresses.primary.latitude}
+                        onChange={(e) => handleEditAddressFieldChange('primary', 'latitude', e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="Latitude" />
+                    </div>
                   </div>
-
-
-
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Longitude <span className="text-rose-500">*</span></label>
+                      <input type="number" step="any" value={editAddresses.primary.longitude}
+                        onChange={(e) => handleEditAddressFieldChange('primary', 'longitude', e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="Longitude" />
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <button type="button" onClick={() => handleEditAddressGeocode('primary')}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors">
+                        <MapPin className="h-3.5 w-3.5" /> Auto-Geocode
+                      </button>
+                      <button type="button" onClick={() => handleEditReverseGeocode('primary')}
+                        disabled={!editAddresses.primary.latitude || !editAddresses.primary.longitude}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50">
+                        <Map className="h-3.5 w-3.5" /> Reverse
+                      </button>
+                    </div>
+                  </div>
                 </div>
-
-
-
               </div>
 
+              {/* ── Additional Addresses ── */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800 mb-3">Additional Addresses (Optional)</h3>
+                <div className="space-y-3">
 
+                  {/* Police Station */}
+                  <div className="p-4 border border-slate-200 rounded-lg">
+                    <div className="flex items-center mb-3">
+                      <input type="checkbox" checked={editAddresses.police.enabled}
+                        onChange={(e) => handleEditAddressToggle('police', e.target.checked)}
+                        className="mr-2" />
+                      <label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                        <Shield className="h-3.5 w-3.5 text-slate-500" /> Police Station Address
+                      </label>
+                    </div>
+                    {editAddresses.police.enabled && (
+                      <div className="space-y-3">
+                        <textarea value={editAddresses.police.addressLine}
+                          onChange={(e) => handleEditAddressFieldChange('police', 'addressLine', e.target.value)}
+                          rows={2} placeholder="Police station address"
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none" />
+                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">City</label>
+                            <input type="text" value={editAddresses.police.city}
+                              onChange={(e) => handleEditAddressFieldChange('police', 'city', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="City" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">State</label>
+                            <input type="text" value={editAddresses.police.state}
+                              onChange={(e) => handleEditAddressFieldChange('police', 'state', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="State" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Pincode</label>
+                            <input type="text" value={editAddresses.police.pincode}
+                              onChange={(e) => handleEditAddressFieldChange('police', 'pincode', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="Pincode" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Latitude</label>
+                            <input type="number" step="any" value={editAddresses.police.latitude}
+                              onChange={(e) => handleEditAddressFieldChange('police', 'latitude', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="Latitude" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Longitude</label>
+                            <input type="number" step="any" value={editAddresses.police.longitude}
+                              onChange={(e) => handleEditAddressFieldChange('police', 'longitude', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="Longitude" />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => handleEditAddressGeocode('police')}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors">
+                            <MapPin className="h-3.5 w-3.5" /> Auto-Geocode
+                          </button>
+                          <button type="button" onClick={() => handleEditReverseGeocode('police')}
+                            disabled={!editAddresses.police.latitude || !editAddresses.police.longitude}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50">
+                            <Map className="h-3.5 w-3.5" /> Reverse
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Branch Address */}
+                  <div className="p-4 border border-slate-200 rounded-lg">
+                    <div className="flex items-center mb-3">
+                      <input type="checkbox" checked={editAddresses.branch.enabled}
+                        onChange={(e) => handleEditAddressToggle('branch', e.target.checked)}
+                        className="mr-2" />
+                      <label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                        <Building className="h-3.5 w-3.5 text-slate-500" /> Branch Address
+                      </label>
+                    </div>
+                    {editAddresses.branch.enabled && (
+                      <div className="space-y-3">
+                        <textarea value={editAddresses.branch.addressLine}
+                          onChange={(e) => handleEditAddressFieldChange('branch', 'addressLine', e.target.value)}
+                          rows={2} placeholder="Branch address"
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none" />
+                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">City</label>
+                            <input type="text" value={editAddresses.branch.city}
+                              onChange={(e) => handleEditAddressFieldChange('branch', 'city', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="City" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">State</label>
+                            <input type="text" value={editAddresses.branch.state}
+                              onChange={(e) => handleEditAddressFieldChange('branch', 'state', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="State" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Pincode</label>
+                            <input type="text" value={editAddresses.branch.pincode}
+                              onChange={(e) => handleEditAddressFieldChange('branch', 'pincode', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="Pincode" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Latitude</label>
+                            <input type="number" step="any" value={editAddresses.branch.latitude}
+                              onChange={(e) => handleEditAddressFieldChange('branch', 'latitude', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="Latitude" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Longitude</label>
+                            <input type="number" step="any" value={editAddresses.branch.longitude}
+                              onChange={(e) => handleEditAddressFieldChange('branch', 'longitude', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="Longitude" />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => handleEditAddressGeocode('branch')}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors">
+                            <MapPin className="h-3.5 w-3.5" /> Auto-Geocode
+                          </button>
+                          <button type="button" onClick={() => handleEditReverseGeocode('branch')}
+                            disabled={!editAddresses.branch.latitude || !editAddresses.branch.longitude}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50">
+                            <Map className="h-3.5 w-3.5" /> Reverse
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Tahsil Address */}
+                  <div className="p-4 border border-slate-200 rounded-lg">
+                    <div className="flex items-center mb-3">
+                      <input type="checkbox" checked={editAddresses.tahsil.enabled}
+                        onChange={(e) => handleEditAddressToggle('tahsil', e.target.checked)}
+                        className="mr-2" />
+                      <label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                        <MapPin className="h-3.5 w-3.5 text-slate-500" /> Tahsil Address
+                      </label>
+                    </div>
+                    {editAddresses.tahsil.enabled && (
+                      <div className="space-y-3">
+                        <textarea value={editAddresses.tahsil.addressLine}
+                          onChange={(e) => handleEditAddressFieldChange('tahsil', 'addressLine', e.target.value)}
+                          rows={2} placeholder="Tahsil address"
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none" />
+                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">City</label>
+                            <input type="text" value={editAddresses.tahsil.city}
+                              onChange={(e) => handleEditAddressFieldChange('tahsil', 'city', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="City" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">State</label>
+                            <input type="text" value={editAddresses.tahsil.state}
+                              onChange={(e) => handleEditAddressFieldChange('tahsil', 'state', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="State" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Pincode</label>
+                            <input type="text" value={editAddresses.tahsil.pincode}
+                              onChange={(e) => handleEditAddressFieldChange('tahsil', 'pincode', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="Pincode" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Latitude</label>
+                            <input type="number" step="any" value={editAddresses.tahsil.latitude}
+                              onChange={(e) => handleEditAddressFieldChange('tahsil', 'latitude', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="Latitude" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Longitude</label>
+                            <input type="number" step="any" value={editAddresses.tahsil.longitude}
+                              onChange={(e) => handleEditAddressFieldChange('tahsil', 'longitude', e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                              placeholder="Longitude" />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => handleEditAddressGeocode('tahsil')}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors">
+                            <MapPin className="h-3.5 w-3.5" /> Auto-Geocode
+                          </button>
+                          <button type="button" onClick={() => handleEditReverseGeocode('tahsil')}
+                            disabled={!editAddresses.tahsil.latitude || !editAddresses.tahsil.longitude}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50">
+                            <Map className="h-3.5 w-3.5" /> Reverse
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Deal Information ── */}
+              <div className="border-t pt-5">
+                <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                  <DollarSign className="h-4 w-4 text-slate-500" /> Deal Information
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Department</label>
+                    <select value={editDepartment}
+                      onChange={async (e) => {
+                        const dept = e.target.value;
+                        setEditDepartment(dept);
+                        setEditForm(prev => ({ ...prev, department: dept, stage: "" }));
+                        if (dept) {
+                          const stages = await fetchStagesForDepartment(dept).catch(() => []);
+                          setEditAvailableStages(stages || []);
+                        } else { setEditAvailableStages([]); }
+                      }}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+                      <option value="">Select Department</option>
+                      {[...new Set((stagesFromBackend || []).map(s => s.department).filter(Boolean))].map(dept => (
+                        <option key={dept} value={dept}>{dept}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Deal Stage</label>
+                    <select value={editForm.stage || ""} disabled={!editDepartment}
+                      onChange={(e) => setEditForm({...editForm, stage: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+                      <option value="">Select Stage</option>
+                      {editAvailableStages.map(s => (
+                        <option key={s.stageCode} value={s.stageCode}>{s.stageName}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Bank</label>
+                    <select value={editForm.bankId || ""}
+                      onChange={(e) => setEditForm({...editForm, bankId: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+                      <option value="">Select Bank</option>
+                      {banks.map(b => (
+                        <option key={b.id} value={String(b.id)}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Deal Value (₹)</label>
+                    <input type="number" min="0" value={editForm.valueAmount || ""}
+                      onChange={(e) => setEditForm({...editForm, valueAmount: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      placeholder="0" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Closing Date</label>
+                    <input type="date" value={editForm.closingDate || ""}
+                      onChange={(e) => setEditForm({...editForm, closingDate: e.target.value})}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Description</label>
+                    <textarea value={editForm.description || ""} onChange={(e) => setEditForm({...editForm, description: e.target.value})}
+                      rows={3}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
+                      placeholder="Deal description" />
+                  </div>
+                </div>
+              </div>
 
             </div>
 
-
-
-            
-
-
-
-            <div>
-
-
-
-              <label className="block text-sm font-medium text-slate-700 mb-1">Bank</label>
-
-
-
-              <select
-
-
-
-                value={customerEditForm.bankId || ""}
-
-
-
-                onChange={(e) => setCustomerEditForm({...customerEditForm, bankId: e.target.value})}
-
-
-
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors"
-
-
-
-              >
-
-
-
-                <option value="">Select bank</option>
-
-
-
-                {banks.map((bankItem) => (
-
-
-
-                  <option key={bankItem.id} value={bankItem.id}>
-
-
-
-                    {bankItem.name}
-
-
-
-                  </option>
-
-
-
-                ))}
-
-
-
-              </select>
-
-
-
+            {/* Footer */}
+            <div className="flex justify-end gap-3 border-t border-slate-200/80 px-6 py-4 sticky bottom-0 bg-white/95">
+              <button onClick={() => setShowCustomerEditModal(false)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+                Cancel
+              </button>
+              <button onClick={handleCustomerUpdate}
+                className="rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-md shadow-blue-500/30 transition hover:translate-y-[1px] hover:shadow-lg">
+                Save Changes
+              </button>
             </div>
 
-
-
           </div>
-
-
-
-          
-
-
-
-          <div className="flex justify-end gap-3 border-t border-slate-200/80 p-6">
-
-
-
-            <button
-
-
-
-              onClick={() => setShowCustomerEditModal(false)}
-
-
-
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-
-
-
-            >
-
-
-
-              Cancel
-
-
-
-            </button>
-
-
-
-            <button
-
-
-
-              onClick={handleCustomerUpdate}
-
-
-
-              className="rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-md shadow-blue-500/30 transition hover:translate-y-[1px] hover:shadow-lg"
-
-
-
-            >
-
-
-
-              Save Changes
-
-
-
-            </button>
-
-
-
-          </div>
-
-
-
         </div>
-
-
-
-      </div>
-
-
-
-    )}
-
+      )}
 
 
     </>

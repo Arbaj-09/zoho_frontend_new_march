@@ -256,6 +256,9 @@ export default function AdminManagerCRMDashboard({ userName, userRole }) {
   // ✅ BANK DEPARTMENT STATS - Calculate bank-wise deal distribution
   const bankDepartmentStats = useMemo(() => {
     console.log('🔥 [DASHBOARD] Computing bank department stats');
+    console.log('🔥 [DASHBOARD] Available deals:', deals.length);
+    console.log('🔥 [DASHBOARD] Available banks:', bankRecords.length);
+    console.log('🔥 [DASHBOARD] Sample deal structure:', deals.slice(0, 2));
     
     if (!deals.length || !bankRecords.length) {
       console.log('🔥 [DASHBOARD] No deals or banks available for stats');
@@ -267,12 +270,14 @@ export default function AdminManagerCRMDashboard({ userName, userRole }) {
       
       // Initialize all departments with 0
       departments.forEach(dept => {
+        // 🔥 FIX: Match by relatedBankName instead of bankId
         deptCounts[dept] = deals.filter(
-          d => d.bankId === bank.id && d.department === dept
+          d => d.relatedBankName === bank.name && d.department === dept
         ).length;
       });
 
-      const totalDeals = deals.filter(d => d.bankId === bank.id).length;
+      // 🔥 FIX: Match by relatedBankName instead of bankId
+      const totalDeals = deals.filter(d => d.relatedBankName === bank.name).length;
 
       return {
         bankName: bank.name || bank.bankName,
@@ -429,6 +434,34 @@ export default function AdminManagerCRMDashboard({ userName, userRole }) {
         products: normalizedProducts.length,
         banks: normalizedBanks.length
       });
+
+      // 🔥 DEBUG: Show sample deal structure to understand bank field
+      if (normalizedDeals.length > 0) {
+        console.log('🔥 [DASHBOARD] Sample deal structures:');
+        normalizedDeals.slice(0, 3).forEach((deal, index) => {
+          console.log(`🔥 Deal ${index + 1}:`, {
+            id: deal.id,
+            name: deal.name,
+            relatedBankName: deal.relatedBankName,
+            bankId: deal.bankId,
+            department: deal.department,
+            stage: deal.stage
+          });
+        });
+      }
+
+      // 🔥 DEBUG: Show bank structure
+      if (normalizedBanks.length > 0) {
+        console.log('🔥 [DASHBOARD] Sample bank structures:');
+        normalizedBanks.slice(0, 3).forEach((bank, index) => {
+          console.log(`🔥 Bank ${index + 1}:`, {
+            id: bank.id,
+            name: bank.name,
+            bankName: bank.bankName,
+            branchName: bank.branchName
+          });
+        });
+      }
 
       setCustomers(normalizedCustomers);
       setDeals(normalizedDeals);
